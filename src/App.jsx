@@ -16,7 +16,10 @@ import {
   X,
   Check,
   Tag,
-  Filter
+  Filter,
+  Wifi,
+  WifiOff,
+  CloudUpload
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Auth from './components/Auth';
@@ -31,37 +34,67 @@ const COLOR_OPTIONS = [
 ];
 
 const DEFAULT_PROJECTS = [
-  { name: 'Trabajo', color: 'bg-blue-500', hex: '#3b82f6' },
-  { name: 'Personal', color: 'bg-emerald-500', hex: '#10b981' },
-  { name: 'Estudio', color: 'bg-purple-500', hex: '#a855f7' }
+  { id: 'proj-def-1', name: 'Trabajo', color: 'bg-blue-500', hex: '#3b82f6' },
+  { id: 'proj-def-2', name: 'Personal', color: 'bg-emerald-500', hex: '#10b981' },
+  { id: 'proj-def-3', name: 'Estudio', color: 'bg-purple-500', hex: '#a855f7' }
 ];
+
+// Claves de almacenamiento local (Offline Storage)
+const STORAGE_KEYS = {
+  TASKS: 'midia_offline_tasks',
+  PROJECTS: 'midia_offline_projects',
+  EVENTS: 'midia_offline_events',
+  QUEUE: 'midia_offline_queue'
+};
 
 export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Estado de conexión a internet
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncing, setSyncing] = useState(false);
+  const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
   // Datos principales
-  const [tasks, setTasks] = useState([]);
-  const [projects, setProjects] = useState([]);
-  const [events, setEvents] = useState([]);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [tasks, setTasks] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const [projects, setProjects] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
+      return saved ? JSON.parse(saved) : DEFAULT_PROJECTS;
+    } catch { return DEFAULT_PROJECTS; }
+  });
+
+  const [events, setEvents] = useState(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  const [dataLoading, setDataLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
 
   // Estados de navegación y filtros
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'agenda'
+  const [activeTab, setActiveTab] = useState('tasks');
   const [selectedFilterProjectId, setSelectedFilterProjectId] = useState('all');
 
-  // Formulario rápido para nueva tarea
+  // Formulario nueva tarea
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskProjectId, setNewTaskProjectId] = useState('');
   const [submittingTask, setSubmittingTask] = useState(false);
 
-  // Modales de Edición / Creación
-  const [editingTask, setEditingTask] = useState(null); // { id, title, projectId }
+  // Modales
+  const [editingTask, setEditingTask] = useState(null);
   const [eventModal, setEventModal] = useState({ open: false, isEditing: false, data: null });
   const [projectModal, setProjectModal] = useState(false);
   
-  // Estado formulario evento
   const [eventForm, setEventForm] = useState({
     title: '',
     time: '10:00 AM',
@@ -70,17 +103,109 @@ export default function App() {
     projectId: ''
   });
 
-  // Estado formulario proyecto
   const [projectForm, setProjectForm] = useState({
     name: '',
     color: 'bg-blue-500',
     hex: '#3b82f6'
   });
 
-  // 1. Escuchar sesión de Supabase Auth
+  // Guardar en LocalStorage cada vez que cambian los datos
+  const saveOfflineCache = useCallback((newTasks, newProjects, newEvents) => {
+    try {
+      if (newTasks) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(newTasks));
+      if (newProjects) localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(newProjects));
+      if (newEvents) localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(newEvents));
+    } catch (e) {
+      console.warn('Error al guardar cache offline:', e);
+    }
+  }, []);
+
+  // Agregar a la cola de sincronización offline
+  const enqueueOfflineAction = useCallback((action) => {
+    try {
+      const currentQueue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+      currentQueue.push(action);
+      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(currentQueue));
+      setPendingSyncCount(currentQueue.length);
+    } catch (e) {
+      console.warn('Error al encolar acción offline:', e);
+    }
+  }, []);
+
+  // Sincronizar cola de acciones pendientes con Supabase
+  const syncPendingActions = useCallback(async () => {
+    if (!navigator.onLine) return;
+    const currentQueue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+    if (currentQueue.length === 0) return;
+
+    try {
+      setSyncing(true);
+      const remaining = [];
+
+      for (const item of currentQueue) {
+        try {
+          if (item.type === 'ADD_TASK') {
+            await supabase.from('tasks').insert(item.payload);
+          } else if (item.type === 'UPDATE_TASK') {
+            await supabase.from('tasks').update(item.payload.data).eq('id', item.payload.id);
+          } else if (item.type === 'DELETE_TASK') {
+            await supabase.from('tasks').delete().eq('id', item.payload.id);
+          } else if (item.type === 'ADD_EVENT') {
+            await supabase.from('events').insert(item.payload);
+          } else if (item.type === 'UPDATE_EVENT') {
+            await supabase.from('events').update(item.payload.data).eq('id', item.payload.id);
+          } else if (item.type === 'DELETE_EVENT') {
+            await supabase.from('events').delete().eq('id', item.payload.id);
+          } else if (item.type === 'ADD_PROJECT') {
+            await supabase.from('projects').insert(item.payload);
+          } else if (item.type === 'DELETE_PROJECT') {
+            await supabase.from('projects').delete().eq('id', item.payload.id);
+          }
+        } catch (err) {
+          console.error('Error sincronizando acción:', item, err);
+          remaining.push(item);
+        }
+      }
+
+      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(remaining));
+      setPendingSyncCount(remaining.length);
+    } finally {
+      setSyncing(false);
+    }
+  }, []);
+
+  // Detectar cambios en conexión (online / offline)
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      syncPendingActions();
+    };
+    const handleOffline = () => {
+      setIsOnline(false);
+    };
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // Revisar cola existente al montar
+    const queue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+    setPendingSyncCount(queue.length);
+    if (navigator.onLine && queue.length > 0) {
+      syncPendingActions();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [syncPendingActions]);
+
+  // Escuchar sesión de Supabase Auth (funciona offline si hay token previo en localStorage)
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      setAuthLoading(false);
+    }).catch(() => {
       setAuthLoading(false);
     });
 
@@ -94,13 +219,21 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // 2. Cargar Proyectos, Tareas y Eventos desde Supabase
+  // Cargar datos (online con Supabase, o fallback a caché si offline)
   const loadUserData = useCallback(async (userId) => {
+    if (!navigator.onLine) {
+      // Usar caché offline directamente
+      return;
+    }
+
     try {
       setDataLoading(true);
       setErrorMessage(null);
 
-      // Cargar Proyectos
+      // Sincronizar acciones pendientes primero
+      await syncPendingActions();
+
+      // Proyectos
       const { data: userProjects, error: projectsError } = await supabase
         .from('projects')
         .select('*')
@@ -110,25 +243,26 @@ export default function App() {
 
       let currentProjects = userProjects || [];
 
-      // Si el usuario no tiene proyectos, crear los proyectos iniciales
       if (currentProjects.length === 0) {
-        const { data: newProjects, error: insertProjectsError } = await supabase
+        const { data: newProjects } = await supabase
           .from('projects')
           .insert(DEFAULT_PROJECTS.map(p => ({ ...p, user_id: userId })))
           .select();
 
-        if (!insertProjectsError && newProjects) {
+        if (newProjects && newProjects.length > 0) {
           currentProjects = newProjects;
         }
       }
 
       setProjects(currentProjects);
+      saveOfflineCache(null, currentProjects, null);
+
       if (currentProjects.length > 0) {
         setNewTaskProjectId(currentProjects[0].id);
         setEventForm(prev => ({ ...prev, projectId: currentProjects[0].id }));
       }
 
-      // Cargar Tareas
+      // Tareas
       const { data: userTasks, error: tasksError } = await supabase
         .from('tasks')
         .select('*')
@@ -136,14 +270,16 @@ export default function App() {
 
       if (tasksError) throw tasksError;
 
-      setTasks((userTasks || []).map(t => ({
+      const mappedTasks = (userTasks || []).map(t => ({
         id: t.id,
         title: t.title,
         completed: t.completed,
         projectId: t.project_id
-      })));
+      }));
+      setTasks(mappedTasks);
+      saveOfflineCache(mappedTasks, null, null);
 
-      // Cargar Eventos
+      // Eventos
       const { data: userEvents, error: eventsError } = await supabase
         .from('events')
         .select('*')
@@ -151,22 +287,23 @@ export default function App() {
 
       if (eventsError) throw eventsError;
 
-      setEvents((userEvents || []).map(e => ({
+      const mappedEvents = (userEvents || []).map(e => ({
         id: e.id,
         title: e.title,
         time: e.time,
         type: e.type,
         link: e.link,
         projectId: e.project_id
-      })));
+      }));
+      setEvents(mappedEvents);
+      saveOfflineCache(null, null, mappedEvents);
 
     } catch (err) {
-      console.error('Error al cargar datos desde Supabase:', err);
-      setErrorMessage('No se pudieron sincronizar los datos. Revisa tus tablas en Supabase.');
+      console.warn('Modo sin conexión o fallo de red. Cargando desde caché offline.', err);
     } finally {
       setDataLoading(false);
     }
-  }, []);
+  }, [syncPendingActions, saveOfflineCache]);
 
   useEffect(() => {
     if (session?.user?.id) {
@@ -180,120 +317,126 @@ export default function App() {
       setTasks([]);
       setProjects([]);
       setEvents([]);
+      localStorage.removeItem(STORAGE_KEYS.TASKS);
+      localStorage.removeItem(STORAGE_KEYS.PROJECTS);
+      localStorage.removeItem(STORAGE_KEYS.EVENTS);
     } catch (err) {
       console.error('Error al cerrar sesión:', err);
     }
   };
 
   // ==========================================
-  // CRUD DE TAREAS (TASKS)
+  // OPERACIONES OFFLINE / ONLINE DE TAREAS
   // ==========================================
 
-  // Crear Tarea
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTaskTitle.trim() || !session?.user?.id) return;
 
-    try {
-      setSubmittingTask(true);
-      const titleToInsert = newTaskTitle.trim();
-      const projIdToInsert = newTaskProjectId || (projects[0]?.id || null);
+    const tempId = 'task-' + Date.now();
+    const projId = newTaskProjectId || (projects[0]?.id || null);
+    const newTask = {
+      id: tempId,
+      title: newTaskTitle.trim(),
+      completed: false,
+      projectId: projId
+    };
 
-      const { data, error } = await supabase
-        .from('tasks')
-        .insert([
-          {
-            title: titleToInsert,
-            completed: false,
-            project_id: projIdToInsert,
-            user_id: session.user.id
-          }
-        ])
-        .select()
-        .single();
+    // Actualización local inmediata
+    const updatedTasks = [newTask, ...tasks];
+    setTasks(updatedTasks);
+    saveOfflineCache(updatedTasks, null, null);
+    setNewTaskTitle('');
 
-      if (error) throw error;
+    const payload = {
+      id: tempId,
+      title: newTask.title,
+      completed: false,
+      project_id: projId,
+      user_id: session.user.id
+    };
 
-      if (data) {
-        setTasks(prev => [{
-          id: data.id,
-          title: data.title,
-          completed: data.completed,
-          projectId: data.project_id
-        }, ...prev]);
-        setNewTaskTitle('');
+    if (navigator.onLine) {
+      try {
+        setSubmittingTask(true);
+        const { data, error } = await supabase.from('tasks').insert([payload]).select().single();
+        if (error) throw error;
+        if (data) {
+          setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
+        }
+      } catch {
+        enqueueOfflineAction({ type: 'ADD_TASK', payload });
+      } finally {
+        setSubmittingTask(false);
       }
-    } catch (err) {
-      console.error('Error al agregar tarea:', err);
-      alert('Error al guardar la tarea.');
-    } finally {
-      setSubmittingTask(false);
+    } else {
+      enqueueOfflineAction({ type: 'ADD_TASK', payload });
     }
   };
 
-  // Alternar completado
   const toggleTask = async (taskId) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
     const newCompleted = !task.completed;
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t));
+    const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t);
+    setTasks(updatedTasks);
+    saveOfflineCache(updatedTasks, null, null);
 
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({ completed: newCompleted })
-        .eq('id', taskId);
-
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error al actualizar tarea:', err);
-      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: !newCompleted } : t));
+    if (navigator.onLine) {
+      try {
+        await supabase.from('tasks').update({ completed: newCompleted }).eq('id', taskId);
+      } catch {
+        enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: taskId, data: { completed: newCompleted } } });
+      }
+    } else {
+      enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: taskId, data: { completed: newCompleted } } });
     }
   };
 
-  // Actualizar Tarea (Editar título o proyecto)
   const handleUpdateTask = async (e) => {
     e.preventDefault();
     if (!editingTask || !editingTask.title.trim()) return;
 
-    try {
-      const { error } = await supabase
-        .from('tasks')
-        .update({
-          title: editingTask.title.trim(),
-          project_id: editingTask.projectId
-        })
-        .eq('id', editingTask.id);
+    const updatedTasks = tasks.map(t => 
+      t.id === editingTask.id ? { ...t, title: editingTask.title.trim(), projectId: editingTask.projectId } : t
+    );
+    setTasks(updatedTasks);
+    saveOfflineCache(updatedTasks, null, null);
 
-      if (error) throw error;
+    const dataToUpdate = { title: editingTask.title.trim(), project_id: editingTask.projectId };
 
-      setTasks(prev => prev.map(t => 
-        t.id === editingTask.id ? { ...t, title: editingTask.title.trim(), projectId: editingTask.projectId } : t
-      ));
-      setEditingTask(null);
-    } catch (err) {
-      console.error('Error al actualizar tarea:', err);
-      alert('No se pudo guardar la edición de la tarea.');
+    if (navigator.onLine) {
+      try {
+        await supabase.from('tasks').update(dataToUpdate).eq('id', editingTask.id);
+      } catch {
+        enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: editingTask.id, data: dataToUpdate } });
+      }
+    } else {
+      enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: editingTask.id, data: dataToUpdate } });
     }
+
+    setEditingTask(null);
   };
 
-  // Eliminar Tarea
   const deleteTask = async (taskId) => {
-    const previous = [...tasks];
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+    const updatedTasks = tasks.filter(t => t.id !== taskId);
+    setTasks(updatedTasks);
+    saveOfflineCache(updatedTasks, null, null);
 
-    try {
-      const { error } = await supabase.from('tasks').delete().eq('id', taskId);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error al eliminar tarea:', err);
-      setTasks(previous);
+    if (navigator.onLine) {
+      try {
+        await supabase.from('tasks').delete().eq('id', taskId);
+      } catch {
+        enqueueOfflineAction({ type: 'DELETE_TASK', payload: { id: taskId } });
+      }
+    } else {
+      enqueueOfflineAction({ type: 'DELETE_TASK', payload: { id: taskId } });
     }
   };
 
   // ==========================================
-  // CRUD DE EVENTOS (EVENTS)
+  // OPERACIONES OFFLINE / ONLINE DE EVENTOS
   // ==========================================
 
   const openCreateEventModal = () => {
@@ -322,112 +465,137 @@ export default function App() {
     e.preventDefault();
     if (!eventForm.title.trim() || !session?.user?.id) return;
 
-    try {
-      if (eventModal.isEditing && eventModal.data) {
-        // Actualizar Evento existente
-        const { error } = await supabase
-          .from('events')
-          .update({
-            title: eventForm.title.trim(),
-            time: eventForm.time,
-            type: eventForm.type,
-            link: eventForm.link.trim(),
-            project_id: eventForm.projectId
-          })
-          .eq('id', eventModal.data.id);
+    if (eventModal.isEditing && eventModal.data) {
+      const updatedEvents = events.map(ev => 
+        ev.id === eventModal.data.id ? {
+          ...ev,
+          title: eventForm.title.trim(),
+          time: eventForm.time,
+          type: eventForm.type,
+          link: eventForm.link.trim(),
+          projectId: eventForm.projectId
+        } : ev
+      );
+      setEvents(updatedEvents);
+      saveOfflineCache(null, null, updatedEvents);
 
-        if (error) throw error;
+      const dataToUpdate = {
+        title: eventForm.title.trim(),
+        time: eventForm.time,
+        type: eventForm.type,
+        link: eventForm.link.trim(),
+        project_id: eventForm.projectId
+      };
 
-        setEvents(prev => prev.map(ev => 
-          ev.id === eventModal.data.id ? {
-            ...ev,
-            title: eventForm.title.trim(),
-            time: eventForm.time,
-            type: eventForm.type,
-            link: eventForm.link.trim(),
-            projectId: eventForm.projectId
-          } : ev
-        ));
-      } else {
-        // Crear Nuevo Evento
-        const { data, error } = await supabase
-          .from('events')
-          .insert([{
-            title: eventForm.title.trim(),
-            time: eventForm.time,
-            type: eventForm.type,
-            link: eventForm.link.trim(),
-            project_id: eventForm.projectId || projects[0]?.id,
-            user_id: session.user.id
-          }])
-          .select()
-          .single();
-
-        if (error) throw error;
-
-        if (data) {
-          setEvents(prev => [...prev, {
-            id: data.id,
-            title: data.title,
-            time: data.time,
-            type: data.type,
-            link: data.link,
-            projectId: data.project_id
-          }]);
+      if (navigator.onLine) {
+        try {
+          await supabase.from('events').update(dataToUpdate).eq('id', eventModal.data.id);
+        } catch {
+          enqueueOfflineAction({ type: 'UPDATE_EVENT', payload: { id: eventModal.data.id, data: dataToUpdate } });
         }
+      } else {
+        enqueueOfflineAction({ type: 'UPDATE_EVENT', payload: { id: eventModal.data.id, data: dataToUpdate } });
       }
+    } else {
+      const tempId = 'event-' + Date.now();
+      const newEvent = {
+        id: tempId,
+        title: eventForm.title.trim(),
+        time: eventForm.time,
+        type: eventForm.type,
+        link: eventForm.link.trim(),
+        projectId: eventForm.projectId || projects[0]?.id
+      };
 
-      setEventModal({ open: false, isEditing: false, data: null });
-    } catch (err) {
-      console.error('Error al guardar evento:', err);
-      alert('Error al guardar el evento en la agenda.');
+      const updatedEvents = [...events, newEvent];
+      setEvents(updatedEvents);
+      saveOfflineCache(null, null, updatedEvents);
+
+      const payload = {
+        id: tempId,
+        title: newEvent.title,
+        time: newEvent.time,
+        type: newEvent.type,
+        link: newEvent.link,
+        project_id: newEvent.projectId,
+        user_id: session.user.id
+      };
+
+      if (navigator.onLine) {
+        try {
+          const { data } = await supabase.from('events').insert([payload]).select().single();
+          if (data) {
+            setEvents(prev => prev.map(ev => ev.id === tempId ? { ...ev, id: data.id } : ev));
+          }
+        } catch {
+          enqueueOfflineAction({ type: 'ADD_EVENT', payload });
+        }
+      } else {
+        enqueueOfflineAction({ type: 'ADD_EVENT', payload });
+      }
     }
+
+    setEventModal({ open: false, isEditing: false, data: null });
   };
 
   const handleDeleteEvent = async (eventId) => {
     if (!confirm('¿Deseas eliminar este evento?')) return;
-    const previous = [...events];
-    setEvents(prev => prev.filter(e => e.id !== eventId));
+    const updatedEvents = events.filter(e => e.id !== eventId);
+    setEvents(updatedEvents);
+    saveOfflineCache(null, null, updatedEvents);
 
-    try {
-      const { error } = await supabase.from('events').delete().eq('id', eventId);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error al eliminar evento:', err);
-      setEvents(previous);
+    if (navigator.onLine) {
+      try {
+        await supabase.from('events').delete().eq('id', eventId);
+      } catch {
+        enqueueOfflineAction({ type: 'DELETE_EVENT', payload: { id: eventId } });
+      }
+    } else {
+      enqueueOfflineAction({ type: 'DELETE_EVENT', payload: { id: eventId } });
     }
   };
 
   // ==========================================
-  // CRUD DE PROYECTOS (PROJECTS)
+  // OPERACIONES OFFLINE / ONLINE DE PROYECTOS
   // ==========================================
 
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!projectForm.name.trim() || !session?.user?.id) return;
 
-    try {
-      const { data, error } = await supabase
-        .from('projects')
-        .insert([{
-          name: projectForm.name.trim(),
-          color: projectForm.color,
-          hex: projectForm.hex,
-          user_id: session.user.id
-        }])
-        .select()
-        .single();
+    const tempId = 'proj-' + Date.now();
+    const newProj = {
+      id: tempId,
+      name: projectForm.name.trim(),
+      color: projectForm.color,
+      hex: projectForm.hex
+    };
 
-      if (error) throw error;
+    const updatedProjects = [...projects, newProj];
+    setProjects(updatedProjects);
+    saveOfflineCache(null, updatedProjects, null);
+    setProjectForm({ name: '', color: 'bg-blue-500', hex: '#3b82f6' });
+    setProjectModal(false);
 
-      if (data) {
-        setProjects(prev => [...prev, data]);
-        setProjectForm({ name: '', color: 'bg-blue-500', hex: '#3b82f6' });
-        setProjectModal(false);
+    const payload = {
+      id: tempId,
+      name: newProj.name,
+      color: newProj.color,
+      hex: newProj.hex,
+      user_id: session.user.id
+    };
+
+    if (navigator.onLine) {
+      try {
+        const { data } = await supabase.from('projects').insert([payload]).select().single();
+        if (data) {
+          setProjects(prev => prev.map(p => p.id === tempId ? data : p));
+        }
+      } catch {
+        enqueueOfflineAction({ type: 'ADD_PROJECT', payload });
       }
-    } catch (err) {
-      console.error('Error al crear proyecto:', err);
-      alert('No se pudo crear el proyecto.');
+    } else {
+      enqueueOfflineAction({ type: 'ADD_PROJECT', payload });
     }
   };
 
@@ -436,18 +604,21 @@ export default function App() {
       alert('Debes mantener al menos un proyecto.');
       return;
     }
-    if (!confirm('¿Eliminar este proyecto? Las tareas asociadas perderán su categoría.')) return;
+    if (!confirm('¿Eliminar este proyecto?')) return;
 
-    const previousProjects = [...projects];
-    setProjects(prev => prev.filter(p => p.id !== projectId));
+    const updatedProjects = projects.filter(p => p.id !== projectId);
+    setProjects(updatedProjects);
+    saveOfflineCache(null, updatedProjects, null);
     if (selectedFilterProjectId === projectId) setSelectedFilterProjectId('all');
 
-    try {
-      const { error } = await supabase.from('projects').delete().eq('id', projectId);
-      if (error) throw error;
-    } catch (err) {
-      console.error('Error al eliminar proyecto:', err);
-      setProjects(previousProjects);
+    if (navigator.onLine) {
+      try {
+        await supabase.from('projects').delete().eq('id', projectId);
+      } catch {
+        enqueueOfflineAction({ type: 'DELETE_PROJECT', payload: { id: projectId } });
+      }
+    } else {
+      enqueueOfflineAction({ type: 'DELETE_PROJECT', payload: { id: projectId } });
     }
   };
 
@@ -465,7 +636,6 @@ export default function App() {
     day: 'numeric' 
   }).format(new Date());
 
-  // Filtrado de tareas según el proyecto seleccionado
   const filteredTasks = selectedFilterProjectId === 'all' 
     ? tasks 
     : tasks.filter(t => t.projectId === selectedFilterProjectId);
@@ -483,7 +653,6 @@ export default function App() {
     return <Auth />;
   }
 
-  // Componente de Tarjeta de Tarea
   const TaskCard = ({ task }) => {
     const project = getProjectDetails(task.projectId);
     
@@ -508,7 +677,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Acciones de Tarea: Editar y Borrar */}
         <div className="flex items-center gap-1">
           <button 
             type="button"
@@ -531,7 +699,6 @@ export default function App() {
     );
   };
 
-  // Componente de Tarjeta de Evento
   const EventCard = ({ event }) => {
     const project = getProjectDetails(event.projectId);
     
@@ -591,23 +758,44 @@ export default function App() {
       <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-3 gap-0 md:gap-8">
         
         {/* ======================================================== */}
-        {/* COLUMNA IZQUIERDA: TAREAS (Mobile: Tab 'tasks') */}
+        {/* COLUMNA IZQUIERDA: TAREAS */}
         {/* ======================================================== */}
-        <div className={`lg:col-span-2 space-y-6 p-4 md:p-0 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
+        <div className={`lg:col-span-2 space-y-5 p-4 md:p-0 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
           
-          <header className="mb-6 md:mb-8 mt-2 md:mt-0 flex items-start justify-between">
+          {/* Header con Perfil y Estado Offline */}
+          <header className="mb-4 md:mb-6 mt-2 md:mt-0 flex items-start justify-between">
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold text-slate-900 mb-1 md:mb-2 capitalize">
-                {formattedDate}
-              </h1>
+              <div className="flex items-center gap-2 mb-1">
+                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 capitalize">
+                  {formattedDate}
+                </h1>
+                
+                {/* Badge indicador Offline / Online */}
+                {!isOnline ? (
+                  <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm animate-pulse">
+                    <WifiOff className="w-3 h-3 text-amber-600" />
+                    Sin Wi-Fi (Offline)
+                  </span>
+                ) : pendingSyncCount > 0 ? (
+                  <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-[11px] font-medium px-2.5 py-1 rounded-full">
+                    <CloudUpload className="w-3 h-3 animate-bounce" />
+                    Sincronizando ({pendingSyncCount})
+                  </span>
+                ) : (
+                  <span className="hidden sm:inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium px-2 py-0.5 rounded-full border border-emerald-200">
+                    <Wifi className="w-2.5 h-2.5 text-emerald-600" /> En línea
+                  </span>
+                )}
+              </div>
+
               <p className="text-sm md:text-base text-slate-500">
                 Tienes {tasks.filter(t => !t.completed).length} tareas pendientes para hoy.
               </p>
             </div>
 
-            {/* Perfil y Botón de Salir */}
+            {/* Perfil y Salir */}
             <div className="flex items-center gap-2">
-              <span className="hidden sm:inline-block text-xs text-slate-500 max-w-[140px] truncate">
+              <span className="hidden sm:inline-block text-xs text-slate-500 max-w-[130px] truncate">
                 {session?.user?.email}
               </span>
               <button 
@@ -622,14 +810,15 @@ export default function App() {
             </div>
           </header>
 
-          {errorMessage && (
-            <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-amber-700 text-xs sm:text-sm flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 flex-shrink-0" />
-              <span>{errorMessage}</span>
+          {/* Banner de Aviso Offline */}
+          {!isOnline && (
+            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-amber-800 text-xs flex items-center gap-2.5">
+              <WifiOff className="w-4 h-4 flex-shrink-0 text-amber-600" />
+              <span>Estás usando la app sin conexión. Puedes crear, completar y borrar tareas; todo se sincronizará automáticamente cuando vuelva el internet.</span>
             </div>
           )}
 
-          {/* Formulario Pegajoso para Nueva Tarea */}
+          {/* Formulario Pegajoso de Tareas */}
           <form onSubmit={handleAddTask} className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 sticky top-4 z-10">
             <input
               type="text"
@@ -658,7 +847,7 @@ export default function App() {
             </button>
           </form>
 
-          {/* Barra de Filtro por Proyecto */}
+          {/* Filtro por Proyecto */}
           <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
             <span className="text-slate-400 flex items-center gap-1 flex-shrink-0">
               <Filter className="w-3.5 h-3.5" /> Filtrar:
@@ -701,7 +890,7 @@ export default function App() {
             {dataLoading ? (
               <div className="flex items-center justify-center p-12 text-slate-400 gap-2">
                 <Loader2 className="w-5 h-5 animate-spin text-slate-600" />
-                <span className="text-sm">Cargando tareas de Supabase...</span>
+                <span className="text-sm">Cargando tareas...</span>
               </div>
             ) : (
               <>
@@ -742,7 +931,7 @@ export default function App() {
         {/* ======================================================== */}
         <div className={`space-y-6 p-4 md:p-0 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
           
-          {/* Calendario Mensual */}
+          {/* Calendario */}
           <div className="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-100 mt-2 md:mt-0">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-800">Octubre 2026</h3>
@@ -774,7 +963,7 @@ export default function App() {
             </div>
           </div>
 
-          {/* Agenda de Hoy con Botón de "+ Nuevo Evento" */}
+          {/* Agenda de Hoy con Botón de "+ Evento" */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-base md:text-lg font-semibold text-slate-800 flex items-center gap-2">
@@ -790,7 +979,9 @@ export default function App() {
                 <span>Evento</span>
               </button>
             </div>
-            <p className="text-xs text-slate-500 mb-4 px-1">Sincronizado con Supabase</p>
+            <p className="text-xs text-slate-500 mb-4 px-1">
+              {isOnline ? 'Sincronizado con Supabase' : 'Modo Offline (Guardado localmente)'}
+            </p>
             
             <div className="space-y-2 md:space-y-1">
               {events.length > 0 ? (
@@ -812,7 +1003,7 @@ export default function App() {
             </div>
           </div>
           
-          {/* Tus Proyectos con botón de "+ Proyecto" y eliminar */}
+          {/* Tus Proyectos */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mt-6">
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-slate-800">Tus Proyectos</h3>
@@ -848,18 +1039,13 @@ export default function App() {
         </div>
       </div>
 
-      {/* ======================================================== */}
       {/* MODAL: EDITAR TAREA */}
-      {/* ======================================================== */}
       {editingTask && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-800">Editar Tarea</h3>
-              <button 
-                onClick={() => setEditingTask(null)}
-                className="text-slate-400 hover:text-slate-600"
-              >
+              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -909,9 +1095,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL: CREAR / EDITAR EVENTO */}
-      {/* ======================================================== */}
+      {/* MODAL: EVENTO */}
       {eventModal.open && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
@@ -932,7 +1116,7 @@ export default function App() {
                 <label className="block text-xs font-medium text-slate-600 mb-1">Título del Evento</label>
                 <input
                   type="text"
-                  placeholder="ej. Reunión con equipo"
+                  placeholder="ej. Reunión de planeación"
                   value={eventForm.title}
                   onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
@@ -967,7 +1151,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Enlace de llamada (opcional)</label>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Enlace de videollamada</label>
                 <input
                   type="text"
                   placeholder="meet.google.com/xyz-abc"
@@ -1010,18 +1194,13 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* MODAL: NUEVO PROYECTO */}
-      {/* ======================================================== */}
+      {/* MODAL: PROYECTO */}
       {projectModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-slate-800">Nuevo Proyecto</h3>
-              <button 
-                onClick={() => setProjectModal(false)}
-                className="text-slate-400 hover:text-slate-600"
-              >
+              <button onClick={() => setProjectModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
@@ -1031,7 +1210,7 @@ export default function App() {
                 <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del Proyecto</label>
                 <input
                   type="text"
-                  placeholder="ej. Marketing, Finanzas, Deportes..."
+                  placeholder="ej. Marketing, Finanzas, Salud..."
                   value={projectForm.name}
                   onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
                   className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
@@ -1077,9 +1256,7 @@ export default function App() {
         </div>
       )}
 
-      {/* ======================================================== */}
-      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL (PWA) */}
-      {/* ======================================================== */}
+      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 px-6 py-2 pb-safe shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
         <div className="flex items-center justify-between max-w-sm mx-auto">
           <button 
@@ -1109,4 +1286,3 @@ export default function App() {
     </div>
   );
 }
-

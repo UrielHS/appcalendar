@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'Mi Día - Planificador Diario',
         short_name: 'Mi Día',
-        description: 'Organiza tus tareas, proyectos y eventos diarios de forma inteligente.',
+        description: 'Organiza tus tareas, proyectos y eventos diarios de forma inteligente sin conexión.',
         theme_color: '#0f172a',
         background_color: '#0f172a',
         display: 'standalone',
@@ -39,7 +39,28 @@ export default defineConfig({
         ]
       },
       workbox: {
-        globPatterns: ['**/*.{js,css,html,ico,png,svg}']
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        navigateFallback: '/index.html',
+        cleanupOutdatedCaches: true,
+        clientsClaim: true,
+        skipWaiting: true,
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/.*\.supabase\.co\/rest\/v1\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'supabase-cache',
+              expiration: {
+                maxEntries: 100,
+                maxAgeSeconds: 60 * 60 * 24 * 30 // 30 días
+              },
+              cacheableResponse: {
+                statuses: [0, 200]
+              },
+              networkTimeoutSeconds: 3
+            }
+          }
+        ]
       }
     })
   ]
