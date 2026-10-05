@@ -1,19 +1,98 @@
 import React, { useState } from 'react';
 import { supabase, isSupabaseConfigured } from '../supabaseClient';
-import { Mail, Loader2, Sparkles, AlertCircle, CheckCircle, ArrowRight } from 'lucide-react';
+import { 
+  Mail, 
+  Lock, 
+  Eye, 
+  EyeOff, 
+  Loader2, 
+  Sparkles, 
+  AlertCircle, 
+  CheckCircle, 
+  ArrowRight,
+  UserPlus,
+  LogIn
+} from 'lucide-react';
 
 export default function Auth() {
+  const [isSignUp, setIsSignUp] = useState(false);
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [showMagicLink, setShowMagicLink] = useState(false);
+
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
 
+  // Autenticación directa con Correo y Contraseña (Login / Registro sin límite de correos)
+  const handleEmailPasswordAuth = async (e) => {
+    e.preventDefault();
+    if (!email.trim() || !password.trim()) return;
+
+    if (!isSupabaseConfigured) {
+      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
+      return;
+    }
+
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setError(null);
+      setMessage(null);
+
+      if (isSignUp) {
+        // REGISTRO
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: email.trim(),
+          password: password,
+        });
+
+        if (signUpError) throw signUpError;
+
+        if (data?.session) {
+          setMessage('¡Cuenta creada y sesión iniciada con éxito!');
+        } else if (data?.user) {
+          setMessage(
+            '¡Registro exitoso! Si en tu consola de Supabase está activo "Confirm email", revisa tu correo. Para entrar de inmediato sin esperar correo, desactiva "Confirm email" en Supabase > Auth > Providers > Email.'
+          );
+        }
+      } else {
+        // INICIO DE SESIÓN
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password: password,
+        });
+
+        if (signInError) throw signInError;
+      }
+    } catch (err) {
+      const msg = err?.message || String(err);
+      if (msg.toLowerCase().includes('failed to fetch')) {
+        setError('Error de conexión con Supabase. Revisa que tu URL en .env sea correcta.');
+      } else if (msg.includes('Invalid login credentials')) {
+        setError('Credenciales inválidas. Comprueba tu correo y contraseña o crea una cuenta nueva.');
+      } else if (msg.includes('User already registered')) {
+        setError('Este correo ya está registrado. Selecciona "Iniciar Sesión".');
+      } else {
+        setError(msg || 'Error en la autenticación.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Magic Link alternativo
   const handleMagicLink = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
 
     if (!isSupabaseConfigured) {
-      setError('Aún no has configurado tus credenciales reales en el archivo .env. Abre .env, reemplaza las claves de ejemplo y reinicia "npm run dev".');
+      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
       return;
     }
 
@@ -31,12 +110,11 @@ export default function Auth() {
 
       if (error) throw error;
 
-      setMessage('¡Enlace mágico enviado! Revisa tu bandeja de entrada o spam para iniciar sesión.');
-      setEmail('');
+      setMessage('¡Enlace mágico enviado! Revisa tu bandeja de entrada o spam.');
     } catch (err) {
       const msg = err?.message || String(err);
-      if (msg.toLowerCase().includes('failed to fetch')) {
-        setError('Error de conexión (Failed to fetch): No se pudo conectar con Supabase. Verifica que la URL y la Anon Key en tu archivo .env sean las de tu proyecto y que hayas reiniciado el servidor Vite.');
+      if (msg.includes('rate limit') || msg.includes('exceeded')) {
+        setError('Límite de envíos de correo excedido en Supabase. Utiliza correo y contraseña.');
       } else {
         setError(msg || 'Error al enviar el enlace mágico.');
       }
@@ -45,9 +123,10 @@ export default function Auth() {
     }
   };
 
+  // Google OAuth
   const handleGoogleLogin = async () => {
     if (!isSupabaseConfigured) {
-      setError('Aún no has configurado tus credenciales reales en el archivo .env. Abre .env, reemplaza las claves de ejemplo y reinicia "npm run dev".');
+      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
       return;
     }
 
@@ -64,12 +143,7 @@ export default function Auth() {
 
       if (error) throw error;
     } catch (err) {
-      const msg = err?.message || String(err);
-      if (msg.toLowerCase().includes('failed to fetch')) {
-        setError('Error de conexión (Failed to fetch): No se pudo conectar con Supabase. Verifica tu archivo .env.');
-      } else {
-        setError(msg || 'Error al autenticarse con Google.');
-      }
+      setError(err?.message || 'Error al autenticarse con Google.');
       setLoading(false);
     }
   };
@@ -78,50 +152,170 @@ export default function Auth() {
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 text-slate-100">
       <div className="w-full max-w-md bg-slate-800/90 backdrop-blur-md border border-slate-700/60 rounded-3xl p-6 sm:p-8 shadow-2xl">
         
-        {/* Header */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/30 mb-4">
+        {/* Cabecera */}
+        <div className="text-center mb-6">
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/30 mb-3">
             <Sparkles className="w-7 h-7 text-white" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Mi Día</h1>
-          <p className="text-sm text-slate-400 mt-1">Planificador diario personal y productivo</p>
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">Planificador diario personal y productivo</p>
         </div>
 
-        {!isSupabaseConfigured && (
-          <div className="mb-6 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex gap-3 items-start leading-relaxed">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-amber-400 mt-0.5" />
-            <div>
-              <p className="font-semibold text-amber-200">Configura tus credenciales</p>
-              <p className="mt-0.5 text-amber-300/90">
-                Agrega tus valores reales en <code className="bg-amber-950/50 px-1 py-0.5 rounded text-amber-200">.env</code> para conectar con Supabase.
-              </p>
-            </div>
-          </div>
-        )}
+        {/* Pestañas: Iniciar Sesión / Registrarse */}
+        <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-700/60 mb-6">
+          <button
+            type="button"
+            onClick={() => { setIsSignUp(false); setError(null); setMessage(null); }}
+            className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+              !isSignUp ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <LogIn className="w-4 h-4" />
+            Iniciar Sesión
+          </button>
+          <button
+            type="button"
+            onClick={() => { setIsSignUp(true); setError(null); setMessage(null); }}
+            className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
+              isSignUp ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <UserPlus className="w-4 h-4" />
+            Registrarme
+          </button>
+        </div>
 
+        {/* Alertas */}
         {message && (
-          <div className="mb-6 p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs sm:text-sm flex gap-3 items-start">
+          <div className="mb-5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs sm:text-sm flex gap-3 items-start">
             <CheckCircle className="w-5 h-5 flex-shrink-0 text-emerald-400 mt-0.5" />
-            <p>{message}</p>
+            <p className="leading-relaxed">{message}</p>
           </div>
         )}
 
         {error && (
-          <div className="mb-6 p-4 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs sm:text-sm flex gap-3 items-start">
+          <div className="mb-5 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs sm:text-sm flex gap-3 items-start">
             <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
-            <p>{error}</p>
+            <p className="leading-relaxed">{error}</p>
           </div>
         )}
 
-        {/* Botón de Google */}
-        <div className="space-y-4">
+        {/* Formulario Principal (Correo + Contraseña) */}
+        {!showMagicLink ? (
+          <form onSubmit={handleEmailPasswordAuth} className="space-y-4">
+            <div>
+              <label htmlFor="auth-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+                Correo electrónico
+              </label>
+              <div className="relative">
+                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  id="auth-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ejemplo@correo.com"
+                  required
+                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="auth-password" className="block text-xs font-medium text-slate-300 mb-1.5">
+                Contraseña
+              </label>
+              <div className="relative">
+                <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  id="auth-password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Mínimo 6 caracteres"
+                  required
+                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                >
+                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !email.trim() || !password.trim()}
+              className={`w-full flex items-center justify-center gap-2 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-lg active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
+                isSignUp 
+                  ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30' 
+                  : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+              }`}
+            >
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  {isSignUp ? 'Creando cuenta...' : 'Entrando...'}
+                </>
+              ) : (
+                <>
+                  <span>{isSignUp ? 'Crear mi cuenta' : 'Iniciar Sesión'}</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
+            </button>
+          </form>
+        ) : (
+          /* Formulario Alternativo Magic Link */
+          <form onSubmit={handleMagicLink} className="space-y-4">
+            <div>
+              <label htmlFor="magic-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+                Enviar enlace a tu correo
+              </label>
+              <div className="relative">
+                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  id="magic-email"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="ejemplo@correo.com"
+                  required
+                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading || !email.trim()}
+              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-lg shadow-blue-600/30 text-sm"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Enviar Magic Link</span>}
+            </button>
+          </form>
+        )}
+
+        {/* Separador */}
+        <div className="relative flex items-center justify-center my-6">
+          <div className="border-t border-slate-700 w-full"></div>
+          <span className="bg-slate-800 px-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold absolute">
+            Opciones adicionales
+          </span>
+        </div>
+
+        {/* Google OAuth & Alternativas */}
+        <div className="space-y-3">
           <button
             type="button"
             onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-800 font-medium py-3 px-4 rounded-xl transition-all shadow-md active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-800 font-medium py-2.5 px-4 rounded-xl transition-all text-xs sm:text-sm shadow-md disabled:opacity-50"
           >
-            <svg className="w-5 h-5" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
                 fill="#4285F4"
                 d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -142,56 +336,14 @@ export default function Auth() {
             Continuar con Google
           </button>
 
-          <div className="relative flex items-center justify-center my-6">
-            <div className="border-t border-slate-700 w-full"></div>
-            <span className="bg-slate-800 px-3 text-xs uppercase tracking-wider text-slate-400 font-semibold absolute">
-              o con enlace mágico
-            </span>
-          </div>
-
-          {/* Formulario Magic Link */}
-          <form onSubmit={handleMagicLink} className="space-y-4">
-            <div>
-              <label htmlFor="email" className="block text-xs font-medium text-slate-300 mb-1.5">
-                Correo electrónico
-              </label>
-              <div className="relative">
-                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                <input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="ejemplo@correo.com"
-                  required
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={loading || !email.trim()}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-lg shadow-blue-600/30 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-sm"
-            >
-              {loading ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Enviando enlace...
-                </>
-              ) : (
-                <>
-                  <span>Enviar Magic Link</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={() => { setShowMagicLink(!showMagicLink); setError(null); setMessage(null); }}
+            className="w-full text-center text-xs text-slate-400 hover:text-slate-200 py-1 transition-colors"
+          >
+            {showMagicLink ? '← Volver a inicio con contraseña' : '¿Prefieres enlace mágico por correo? Haz clic aquí'}
+          </button>
         </div>
-
-        <p className="text-center text-xs text-slate-500 mt-8">
-          Sin contraseñas. Te enviaremos un enlace seguro a tu correo para acceder directamente.
-        </p>
 
       </div>
     </div>

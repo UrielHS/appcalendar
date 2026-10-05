@@ -4,6 +4,7 @@ import {
   Circle, 
   Plus, 
   Trash2, 
+  Edit3,
   Calendar as CalendarIcon, 
   Clock, 
   Video, 
@@ -11,10 +12,23 @@ import {
   ListTodo,
   LogOut,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  X,
+  Check,
+  Tag,
+  Filter
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Auth from './components/Auth';
+
+const COLOR_OPTIONS = [
+  { color: 'bg-blue-500', hex: '#3b82f6', label: 'Azul' },
+  { color: 'bg-emerald-500', hex: '#10b981', label: 'Verde' },
+  { color: 'bg-purple-500', hex: '#a855f7', label: 'Morado' },
+  { color: 'bg-rose-500', hex: '#f43f5e', label: 'Rosa' },
+  { color: 'bg-amber-500', hex: '#f59e0b', label: 'Ámbar' },
+  { color: 'bg-indigo-500', hex: '#6366f1', label: 'Índigo' }
+];
 
 const DEFAULT_PROJECTS = [
   { name: 'Trabajo', color: 'bg-blue-500', hex: '#3b82f6' },
@@ -26,18 +40,44 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
+  // Datos principales
   const [tasks, setTasks] = useState([]);
   const [projects, setProjects] = useState([]);
   const [events, setEvents] = useState([]);
   const [dataLoading, setDataLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState(null);
 
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [selectedProjectId, setSelectedProjectId] = useState('');
+  // Estados de navegación y filtros
   const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'agenda'
+  const [selectedFilterProjectId, setSelectedFilterProjectId] = useState('all');
+
+  // Formulario rápido para nueva tarea
+  const [newTaskTitle, setNewTaskTitle] = useState('');
+  const [newTaskProjectId, setNewTaskProjectId] = useState('');
   const [submittingTask, setSubmittingTask] = useState(false);
 
-  // Escuchar sesión de Supabase Auth
+  // Modales de Edición / Creación
+  const [editingTask, setEditingTask] = useState(null); // { id, title, projectId }
+  const [eventModal, setEventModal] = useState({ open: false, isEditing: false, data: null });
+  const [projectModal, setProjectModal] = useState(false);
+  
+  // Estado formulario evento
+  const [eventForm, setEventForm] = useState({
+    title: '',
+    time: '10:00 AM',
+    type: 'meet',
+    link: '',
+    projectId: ''
+  });
+
+  // Estado formulario proyecto
+  const [projectForm, setProjectForm] = useState({
+    name: '',
+    color: 'bg-blue-500',
+    hex: '#3b82f6'
+  });
+
+  // 1. Escuchar sesión de Supabase Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -54,7 +94,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Cargar Proyectos, Tareas y Eventos del usuario
+  // 2. Cargar Proyectos, Tareas y Eventos desde Supabase
   const loadUserData = useCallback(async (userId) => {
     try {
       setDataLoading(true);
@@ -77,16 +117,15 @@ export default function App() {
           .insert(DEFAULT_PROJECTS.map(p => ({ ...p, user_id: userId })))
           .select();
 
-        if (insertProjectsError) {
-          console.error('Error al sembrar proyectos:', insertProjectsError);
-        } else if (newProjects && newProjects.length > 0) {
+        if (!insertProjectsError && newProjects) {
           currentProjects = newProjects;
         }
       }
 
       setProjects(currentProjects);
       if (currentProjects.length > 0) {
-        setSelectedProjectId(currentProjects[0].id);
+        setNewTaskProjectId(currentProjects[0].id);
+        setEventForm(prev => ({ ...prev, projectId: currentProjects[0].id }));
       }
 
       // Cargar Tareas
@@ -97,13 +136,12 @@ export default function App() {
 
       if (tasksError) throw tasksError;
 
-      const mappedTasks = (userTasks || []).map(t => ({
+      setTasks((userTasks || []).map(t => ({
         id: t.id,
         title: t.title,
         completed: t.completed,
         projectId: t.project_id
-      }));
-      setTasks(mappedTasks);
+      })));
 
       // Cargar Eventos
       const { data: userEvents, error: eventsError } = await supabase
@@ -113,15 +151,14 @@ export default function App() {
 
       if (eventsError) throw eventsError;
 
-      const mappedEvents = (userEvents || []).map(e => ({
+      setEvents((userEvents || []).map(e => ({
         id: e.id,
         title: e.title,
         time: e.time,
         type: e.type,
         link: e.link,
         projectId: e.project_id
-      }));
-      setEvents(mappedEvents);
+      })));
 
     } catch (err) {
       console.error('Error al cargar datos desde Supabase:', err);
@@ -137,7 +174,6 @@ export default function App() {
     }
   }, [session, loadUserData]);
 
-  // Manejo de Cerrar Sesión
   const handleLogout = async () => {
     try {
       await supabase.auth.signOut();
@@ -149,7 +185,11 @@ export default function App() {
     }
   };
 
-  // Crear Tarea en Supabase
+  // ==========================================
+  // CRUD DE TAREAS (TASKS)
+  // ==========================================
+
+  // Crear Tarea
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTaskTitle.trim() || !session?.user?.id) return;
@@ -157,7 +197,7 @@ export default function App() {
     try {
       setSubmittingTask(true);
       const titleToInsert = newTaskTitle.trim();
-      const projIdToInsert = selectedProjectId || (projects[0]?.id || null);
+      const projIdToInsert = newTaskProjectId || (projects[0]?.id || null);
 
       const { data, error } = await supabase
         .from('tasks')
@@ -175,66 +215,239 @@ export default function App() {
       if (error) throw error;
 
       if (data) {
-        const newTask = {
+        setTasks(prev => [{
           id: data.id,
           title: data.title,
           completed: data.completed,
           projectId: data.project_id
-        };
-        setTasks(prev => [newTask, ...prev]);
+        }, ...prev]);
         setNewTaskTitle('');
       }
     } catch (err) {
       console.error('Error al agregar tarea:', err);
-      alert('Error al guardar la tarea en la base de datos.');
+      alert('Error al guardar la tarea.');
     } finally {
       setSubmittingTask(false);
     }
   };
 
-  // Alternar estado de completado
+  // Alternar completado
   const toggleTask = async (taskId) => {
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
-    const newCompletedState = !task.completed;
-
-    // Actualización optimista
-    setTasks(prev => prev.map(t => 
-      t.id === taskId ? { ...t, completed: newCompletedState } : t
-    ));
+    const newCompleted = !task.completed;
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t));
 
     try {
       const { error } = await supabase
         .from('tasks')
-        .update({ completed: newCompletedState })
+        .update({ completed: newCompleted })
         .eq('id', taskId);
 
       if (error) throw error;
     } catch (err) {
       console.error('Error al actualizar tarea:', err);
-      // Revertir
-      setTasks(prev => prev.map(t => 
-        t.id === taskId ? { ...t, completed: !newCompletedState } : t
-      ));
+      setTasks(prev => prev.map(t => t.id === taskId ? { ...t, completed: !newCompleted } : t));
     }
   };
 
-  // Eliminar Tarea en Supabase
-  const deleteTask = async (taskId) => {
-    const previousTasks = [...tasks];
-    setTasks(prev => prev.filter(t => t.id !== taskId));
+  // Actualizar Tarea (Editar título o proyecto)
+  const handleUpdateTask = async (e) => {
+    e.preventDefault();
+    if (!editingTask || !editingTask.title.trim()) return;
 
     try {
       const { error } = await supabase
         .from('tasks')
-        .delete()
-        .eq('id', taskId);
+        .update({
+          title: editingTask.title.trim(),
+          project_id: editingTask.projectId
+        })
+        .eq('id', editingTask.id);
 
+      if (error) throw error;
+
+      setTasks(prev => prev.map(t => 
+        t.id === editingTask.id ? { ...t, title: editingTask.title.trim(), projectId: editingTask.projectId } : t
+      ));
+      setEditingTask(null);
+    } catch (err) {
+      console.error('Error al actualizar tarea:', err);
+      alert('No se pudo guardar la edición de la tarea.');
+    }
+  };
+
+  // Eliminar Tarea
+  const deleteTask = async (taskId) => {
+    const previous = [...tasks];
+    setTasks(prev => prev.filter(t => t.id !== taskId));
+
+    try {
+      const { error } = await supabase.from('tasks').delete().eq('id', taskId);
       if (error) throw error;
     } catch (err) {
       console.error('Error al eliminar tarea:', err);
-      setTasks(previousTasks);
+      setTasks(previous);
+    }
+  };
+
+  // ==========================================
+  // CRUD DE EVENTOS (EVENTS)
+  // ==========================================
+
+  const openCreateEventModal = () => {
+    setEventForm({
+      title: '',
+      time: '10:00 AM',
+      type: 'meet',
+      link: '',
+      projectId: projects[0]?.id || ''
+    });
+    setEventModal({ open: true, isEditing: false, data: null });
+  };
+
+  const openEditEventModal = (event) => {
+    setEventForm({
+      title: event.title,
+      time: event.time,
+      type: event.type,
+      link: event.link || '',
+      projectId: event.projectId
+    });
+    setEventModal({ open: true, isEditing: true, data: event });
+  };
+
+  const handleSaveEvent = async (e) => {
+    e.preventDefault();
+    if (!eventForm.title.trim() || !session?.user?.id) return;
+
+    try {
+      if (eventModal.isEditing && eventModal.data) {
+        // Actualizar Evento existente
+        const { error } = await supabase
+          .from('events')
+          .update({
+            title: eventForm.title.trim(),
+            time: eventForm.time,
+            type: eventForm.type,
+            link: eventForm.link.trim(),
+            project_id: eventForm.projectId
+          })
+          .eq('id', eventModal.data.id);
+
+        if (error) throw error;
+
+        setEvents(prev => prev.map(ev => 
+          ev.id === eventModal.data.id ? {
+            ...ev,
+            title: eventForm.title.trim(),
+            time: eventForm.time,
+            type: eventForm.type,
+            link: eventForm.link.trim(),
+            projectId: eventForm.projectId
+          } : ev
+        ));
+      } else {
+        // Crear Nuevo Evento
+        const { data, error } = await supabase
+          .from('events')
+          .insert([{
+            title: eventForm.title.trim(),
+            time: eventForm.time,
+            type: eventForm.type,
+            link: eventForm.link.trim(),
+            project_id: eventForm.projectId || projects[0]?.id,
+            user_id: session.user.id
+          }])
+          .select()
+          .single();
+
+        if (error) throw error;
+
+        if (data) {
+          setEvents(prev => [...prev, {
+            id: data.id,
+            title: data.title,
+            time: data.time,
+            type: data.type,
+            link: data.link,
+            projectId: data.project_id
+          }]);
+        }
+      }
+
+      setEventModal({ open: false, isEditing: false, data: null });
+    } catch (err) {
+      console.error('Error al guardar evento:', err);
+      alert('Error al guardar el evento en la agenda.');
+    }
+  };
+
+  const handleDeleteEvent = async (eventId) => {
+    if (!confirm('¿Deseas eliminar este evento?')) return;
+    const previous = [...events];
+    setEvents(prev => prev.filter(e => e.id !== eventId));
+
+    try {
+      const { error } = await supabase.from('events').delete().eq('id', eventId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error al eliminar evento:', err);
+      setEvents(previous);
+    }
+  };
+
+  // ==========================================
+  // CRUD DE PROYECTOS (PROJECTS)
+  // ==========================================
+
+  const handleCreateProject = async (e) => {
+    e.preventDefault();
+    if (!projectForm.name.trim() || !session?.user?.id) return;
+
+    try {
+      const { data, error } = await supabase
+        .from('projects')
+        .insert([{
+          name: projectForm.name.trim(),
+          color: projectForm.color,
+          hex: projectForm.hex,
+          user_id: session.user.id
+        }])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      if (data) {
+        setProjects(prev => [...prev, data]);
+        setProjectForm({ name: '', color: 'bg-blue-500', hex: '#3b82f6' });
+        setProjectModal(false);
+      }
+    } catch (err) {
+      console.error('Error al crear proyecto:', err);
+      alert('No se pudo crear el proyecto.');
+    }
+  };
+
+  const handleDeleteProject = async (projectId) => {
+    if (projects.length <= 1) {
+      alert('Debes mantener al menos un proyecto.');
+      return;
+    }
+    if (!confirm('¿Eliminar este proyecto? Las tareas asociadas perderán su categoría.')) return;
+
+    const previousProjects = [...projects];
+    setProjects(prev => prev.filter(p => p.id !== projectId));
+    if (selectedFilterProjectId === projectId) setSelectedFilterProjectId('all');
+
+    try {
+      const { error } = await supabase.from('projects').delete().eq('id', projectId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('Error al eliminar proyecto:', err);
+      setProjects(previousProjects);
     }
   };
 
@@ -252,6 +465,11 @@ export default function App() {
     day: 'numeric' 
   }).format(new Date());
 
+  // Filtrado de tareas según el proyecto seleccionado
+  const filteredTasks = selectedFilterProjectId === 'all' 
+    ? tasks 
+    : tasks.filter(t => t.projectId === selectedFilterProjectId);
+
   if (authLoading) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white gap-3">
@@ -265,6 +483,7 @@ export default function App() {
     return <Auth />;
   }
 
+  // Componente de Tarjeta de Tarea
   const TaskCard = ({ task }) => {
     const project = getProjectDetails(task.projectId);
     
@@ -278,7 +497,7 @@ export default function App() {
           >
             {task.completed ? <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6 text-slate-900" /> : <Circle className="w-5 h-5 md:w-6 md:h-6" />}
           </button>
-          <div className="flex flex-col min-w-0">
+          <div className="flex flex-col min-w-0 flex-1">
             <span className={`text-sm md:text-base font-medium truncate ${task.completed ? 'line-through text-slate-500' : 'text-slate-800'}`}>
               {task.title}
             </span>
@@ -288,23 +507,36 @@ export default function App() {
             </div>
           </div>
         </div>
-        <button 
-          type="button"
-          onClick={() => deleteTask(task.id)}
-          className="text-slate-300 hover:text-red-500 p-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity"
-          title="Eliminar tarea"
-        >
-          <Trash2 className="w-4 h-4 md:w-5 md:h-5" />
-        </button>
+
+        {/* Acciones de Tarea: Editar y Borrar */}
+        <div className="flex items-center gap-1">
+          <button 
+            type="button"
+            onClick={() => setEditingTask({ id: task.id, title: task.title, projectId: task.projectId })}
+            className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+            title="Editar tarea"
+          >
+            <Edit3 className="w-4 h-4" />
+          </button>
+          <button 
+            type="button"
+            onClick={() => deleteTask(task.id)}
+            className="text-slate-400 hover:text-red-500 p-2 rounded-lg hover:bg-slate-50 transition-colors"
+            title="Eliminar tarea"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        </div>
       </div>
     );
   };
 
+  // Componente de Tarjeta de Evento
   const EventCard = ({ event }) => {
     const project = getProjectDetails(event.projectId);
     
     return (
-      <div className="flex flex-col p-4 mb-3 bg-white rounded-xl shadow-sm border border-slate-100 border-l-4" style={{ borderLeftColor: project.hex }}>
+      <div className="flex flex-col p-4 mb-3 bg-white rounded-xl shadow-sm border border-slate-100 border-l-4 group" style={{ borderLeftColor: project.hex }}>
         <div className="flex justify-between items-start">
           <div>
             <h4 className="text-sm font-semibold text-slate-800">{event.title}</h4>
@@ -313,8 +545,28 @@ export default function App() {
               {event.time}
             </span>
           </div>
-          <div className={`p-1.5 rounded-lg ${event.type === 'meet' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
-            {event.type === 'meet' ? <Video className="w-4 h-4" /> : <CalendarIcon className="w-4 h-4" />}
+
+          <div className="flex items-center gap-2">
+            <div className={`p-1.5 rounded-lg ${event.type === 'meet' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+              {event.type === 'meet' ? <Video className="w-4 h-4" /> : <CalendarIcon className="w-4 h-4" />}
+            </div>
+
+            <button
+              type="button"
+              onClick={() => openEditEventModal(event)}
+              className="text-slate-400 hover:text-blue-600 p-1 rounded transition-colors"
+              title="Editar evento"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => handleDeleteEvent(event.id)}
+              className="text-slate-400 hover:text-red-500 p-1 rounded transition-colors"
+              title="Eliminar evento"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
           </div>
         </div>
         
@@ -324,7 +576,7 @@ export default function App() {
               href={event.link.startsWith('http') ? event.link : `https://${event.link}`} 
               target="_blank" 
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-3 md:py-1.5 rounded-lg transition-colors w-full md:w-auto justify-center"
+              className="inline-flex items-center gap-2 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 md:py-1.5 rounded-lg transition-colors w-full md:w-auto justify-center"
             >
               Unirse a Google Meet
             </a>
@@ -338,7 +590,9 @@ export default function App() {
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans md:p-8 flex justify-center pb-24 md:pb-8">
       <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-3 gap-0 md:gap-8">
         
-        {/* Columna Izquierda: Tareas (Móvil: Controlado por tabs, Desktop: Ocupa 2 cols) */}
+        {/* ======================================================== */}
+        {/* COLUMNA IZQUIERDA: TAREAS (Mobile: Tab 'tasks') */}
+        {/* ======================================================== */}
         <div className={`lg:col-span-2 space-y-6 p-4 md:p-0 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
           
           <header className="mb-6 md:mb-8 mt-2 md:mt-0 flex items-start justify-between">
@@ -351,7 +605,7 @@ export default function App() {
               </p>
             </div>
 
-            {/* Perfil y Logout */}
+            {/* Perfil y Botón de Salir */}
             <div className="flex items-center gap-2">
               <span className="hidden sm:inline-block text-xs text-slate-500 max-w-[140px] truncate">
                 {session?.user?.email}
@@ -375,7 +629,7 @@ export default function App() {
             </div>
           )}
 
-          {/* Formulario Pegajoso en Móvil */}
+          {/* Formulario Pegajoso para Nueva Tarea */}
           <form onSubmit={handleAddTask} className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 sticky top-4 z-10">
             <input
               type="text"
@@ -386,8 +640,8 @@ export default function App() {
             />
             
             <select
-              value={selectedProjectId}
-              onChange={(e) => setSelectedProjectId(e.target.value)}
+              value={newTaskProjectId}
+              onChange={(e) => setNewTaskProjectId(e.target.value)}
               className="bg-slate-50 text-slate-600 text-xs md:text-sm rounded-xl px-2 md:px-3 py-3 border-none focus:ring-2 focus:ring-slate-200 outline-none appearance-none cursor-pointer max-w-[105px] md:max-w-none"
             >
               {projects.map(p => (
@@ -404,8 +658,41 @@ export default function App() {
             </button>
           </form>
 
+          {/* Barra de Filtro por Proyecto */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
+            <span className="text-slate-400 flex items-center gap-1 flex-shrink-0">
+              <Filter className="w-3.5 h-3.5" /> Filtrar:
+            </span>
+            <button
+              type="button"
+              onClick={() => setSelectedFilterProjectId('all')}
+              className={`px-3 py-1.5 rounded-full font-medium transition-all flex-shrink-0 ${
+                selectedFilterProjectId === 'all'
+                  ? 'bg-slate-900 text-white'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+              }`}
+            >
+              Todos ({tasks.length})
+            </button>
+            {projects.map(p => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => setSelectedFilterProjectId(p.id)}
+                className={`px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 flex-shrink-0 ${
+                  selectedFilterProjectId === p.id
+                    ? 'bg-slate-900 text-white'
+                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
+                }`}
+              >
+                <span className={`w-2 h-2 rounded-full ${p.color}`}></span>
+                {p.name} ({tasks.filter(t => t.projectId === p.id).length})
+              </button>
+            ))}
+          </div>
+
           {/* Lista de Tareas */}
-          <div className="mt-6 md:mt-8">
+          <div className="mt-4">
             <h2 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4 flex items-center gap-2">
               <Folder className="w-5 h-5 text-slate-400" />
               Tus Tareas
@@ -419,23 +706,27 @@ export default function App() {
             ) : (
               <>
                 <div className="space-y-2 md:space-y-1">
-                  {tasks.filter(t => !t.completed).length === 0 ? (
+                  {filteredTasks.filter(t => !t.completed).length === 0 ? (
                     <div className="text-center p-8 bg-white rounded-2xl border border-slate-100">
-                      <p className="text-slate-400 text-sm">No tienes tareas pendientes para hoy. ¡Buen trabajo!</p>
+                      <p className="text-slate-400 text-sm">
+                        {tasks.length === 0 
+                          ? 'No tienes tareas pendientes para hoy. ¡Añade una arriba!' 
+                          : 'No hay tareas pendientes en este proyecto.'}
+                      </p>
                     </div>
                   ) : (
-                    tasks.filter(t => !t.completed).map(task => (
+                    filteredTasks.filter(t => !t.completed).map(task => (
                       <TaskCard key={task.id} task={task} />
                     ))
                   )}
                 </div>
 
                 {/* Tareas Completadas */}
-                {tasks.filter(t => t.completed).length > 0 && (
+                {filteredTasks.filter(t => t.completed).length > 0 && (
                   <div className="mt-8">
                     <h3 className="text-sm font-medium text-slate-500 mb-3 px-2">Completadas</h3>
                     <div className="space-y-2 md:space-y-1">
-                      {tasks.filter(t => t.completed).map(task => (
+                      {filteredTasks.filter(t => t.completed).map(task => (
                         <TaskCard key={task.id} task={task} />
                       ))}
                     </div>
@@ -446,9 +737,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* Columna Derecha: Calendario y Eventos */}
+        {/* ======================================================== */}
+        {/* COLUMNA DERECHA: CALENDARIO, AGENDA Y PROYECTOS */}
+        {/* ======================================================== */}
         <div className={`space-y-6 p-4 md:p-0 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
           
+          {/* Calendario Mensual */}
           <div className="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-100 mt-2 md:mt-0">
             <div className="flex items-center justify-between mb-4">
               <h3 className="font-semibold text-slate-800">Octubre 2026</h3>
@@ -480,11 +774,22 @@ export default function App() {
             </div>
           </div>
 
+          {/* Agenda de Hoy con Botón de "+ Nuevo Evento" */}
           <div>
-            <h2 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4 flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-slate-400" />
-              Agenda de Hoy
-            </h2>
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-base md:text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <CalendarIcon className="w-5 h-5 text-slate-400" />
+                Agenda de Hoy
+              </h2>
+              <button
+                type="button"
+                onClick={openCreateEventModal}
+                className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>Evento</span>
+              </button>
+            </div>
             <p className="text-xs text-slate-500 mb-4 px-1">Sincronizado con Supabase</p>
             
             <div className="space-y-2 md:space-y-1">
@@ -494,33 +799,288 @@ export default function App() {
                 ))
               ) : (
                 <div className="text-center p-8 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
-                  <p className="text-slate-500 text-sm">No tienes eventos programados para hoy.</p>
+                  <p className="text-slate-500 text-sm">No tienes eventos programados.</p>
+                  <button
+                    type="button"
+                    onClick={openCreateEventModal}
+                    className="mt-3 text-xs text-blue-600 hover:underline inline-flex items-center gap-1"
+                  >
+                    <Plus className="w-3 h-3" /> Crear el primer evento
+                  </button>
                 </div>
               )}
             </div>
           </div>
           
+          {/* Tus Proyectos con botón de "+ Proyecto" y eliminar */}
           <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mt-6">
-            <h3 className="text-sm font-semibold text-slate-800 mb-3">Tus Proyectos</h3>
-            <div className="space-y-3 md:space-y-2">
-              {projects.length === 0 ? (
-                <p className="text-xs text-slate-400">Sin proyectos creados aún.</p>
-              ) : (
-                projects.map(project => (
-                  <div key={project.id} className="flex items-center gap-3">
-                    <div className={`w-4 h-4 md:w-3 md:h-3 rounded-full ${project.color}`}></div>
-                    <span className="text-sm text-slate-600">{project.name}</span>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-slate-800">Tus Proyectos</h3>
+              <button
+                type="button"
+                onClick={() => setProjectModal(true)}
+                className="text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline"
+              >
+                <Plus className="w-3.5 h-3.5" /> Nuevo
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {projects.map(project => (
+                <div key={project.id} className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50 group">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3.5 h-3.5 rounded-full ${project.color}`}></div>
+                    <span className="text-sm text-slate-700">{project.name}</span>
                   </div>
-                ))
-              )}
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteProject(project.id)}
+                    className="text-slate-300 hover:text-rose-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                    title="Eliminar proyecto"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
           </div>
 
         </div>
       </div>
 
-      {/* Barra de Navegación Inferior Móvil (PWA) */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-50 px-6 py-2 pb-safe shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
+      {/* ======================================================== */}
+      {/* MODAL: EDITAR TAREA */}
+      {/* ======================================================== */}
+      {editingTask && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Editar Tarea</h3>
+              <button 
+                onClick={() => setEditingTask(null)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateTask} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título</label>
+                <input
+                  type="text"
+                  value={editingTask.title}
+                  onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Proyecto</label>
+                <select
+                  value={editingTask.projectId}
+                  onChange={(e) => setEditingTask({ ...editingTask, projectId: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                >
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEditingTask(null)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                >
+                  Guardar Cambios
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: CREAR / EDITAR EVENTO */}
+      {/* ======================================================== */}
+      {eventModal.open && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">
+                {eventModal.isEditing ? 'Editar Evento' : 'Nuevo Evento de Agenda'}
+              </h3>
+              <button 
+                onClick={() => setEventModal({ open: false, isEditing: false, data: null })}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveEvent} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Título del Evento</label>
+                <input
+                  type="text"
+                  placeholder="ej. Reunión con equipo"
+                  value={eventForm.title}
+                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  required
+                />
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Hora</label>
+                  <input
+                    type="text"
+                    placeholder="10:00 AM"
+                    value={eventForm.time}
+                    onChange={(e) => setEventForm({ ...eventForm, time: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    required
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Tipo</label>
+                  <select
+                    value={eventForm.type}
+                    onChange={(e) => setEventForm({ ...eventForm, type: e.target.value })}
+                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  >
+                    <option value="meet">Google Meet</option>
+                    <option value="calendar">Calendario</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Enlace de llamada (opcional)</label>
+                <input
+                  type="text"
+                  placeholder="meet.google.com/xyz-abc"
+                  value={eventForm.link}
+                  onChange={(e) => setEventForm({ ...eventForm, link: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Proyecto asociado</label>
+                <select
+                  value={eventForm.projectId}
+                  onChange={(e) => setEventForm({ ...eventForm, projectId: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                >
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEventModal({ open: false, isEditing: false, data: null })}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                >
+                  {eventModal.isEditing ? 'Actualizar Evento' : 'Crear Evento'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: NUEVO PROYECTO */}
+      {/* ======================================================== */}
+      {projectModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-slate-800">Nuevo Proyecto</h3>
+              <button 
+                onClick={() => setProjectModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateProject} className="space-y-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del Proyecto</label>
+                <input
+                  type="text"
+                  placeholder="ej. Marketing, Finanzas, Deportes..."
+                  value={projectForm.name}
+                  onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
+                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-2">Color Distintivo</label>
+                <div className="flex gap-2 items-center flex-wrap">
+                  {COLOR_OPTIONS.map(opt => (
+                    <button
+                      key={opt.color}
+                      type="button"
+                      onClick={() => setProjectForm({ ...projectForm, color: opt.color, hex: opt.hex })}
+                      className={`w-8 h-8 rounded-full ${opt.color} flex items-center justify-center transition-transform ${
+                        projectForm.color === opt.color ? 'scale-110 ring-2 ring-slate-900 ring-offset-2' : 'hover:scale-105'
+                      }`}
+                    >
+                      {projectForm.color === opt.color && <Check className="w-4 h-4 text-white" />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setProjectModal(false)}
+                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                >
+                  Guardar Proyecto
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL (PWA) */}
+      {/* ======================================================== */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 px-6 py-2 pb-safe shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
         <div className="flex items-center justify-between max-w-sm mx-auto">
           <button 
             type="button"
@@ -549,3 +1109,4 @@ export default function App() {
     </div>
   );
 }
+
