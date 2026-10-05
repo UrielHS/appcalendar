@@ -19,27 +19,33 @@ import {
   Filter,
   Wifi,
   WifiOff,
-  CloudUpload
+  CloudUpload,
+  ChevronDown,
+  Phone,
+  Smile,
+  Users,
+  Pipette,
+  MessageSquare
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Auth from './components/Auth';
 
+// Paleta de colores estilo Neumórfico Oscuro (como en la imagen de referencia)
 const COLOR_OPTIONS = [
-  { color: 'bg-blue-500', hex: '#3b82f6', label: 'Azul' },
-  { color: 'bg-emerald-500', hex: '#10b981', label: 'Verde' },
-  { color: 'bg-purple-500', hex: '#a855f7', label: 'Morado' },
-  { color: 'bg-rose-500', hex: '#f43f5e', label: 'Rosa' },
-  { color: 'bg-amber-500', hex: '#f59e0b', label: 'Ámbar' },
-  { color: 'bg-indigo-500', hex: '#6366f1', label: 'Índigo' }
+  { color: 'bg-[#fef3c7]', hex: '#fef3c7', text: 'text-amber-950', label: 'Crema' },
+  { color: 'bg-[#e0e7ff]', hex: '#e0e7ff', text: 'text-indigo-950', label: 'Lavanda' },
+  { color: 'bg-[#93c5fd]', hex: '#93c5fd', text: 'text-blue-950', label: 'Celeste' },
+  { color: 'bg-[#f472b6]', hex: '#f472b6', text: 'text-pink-950', label: 'Rosa' },
+  { color: 'bg-[#34d399]', hex: '#34d399', text: 'text-emerald-950', label: 'Menta' },
+  { color: 'bg-[#fbbf24]', hex: '#fbbf24', text: 'text-amber-950', label: 'Dorado' }
 ];
 
 const DEFAULT_PROJECTS = [
-  { id: 'proj-def-1', name: 'Trabajo', color: 'bg-blue-500', hex: '#3b82f6' },
-  { id: 'proj-def-2', name: 'Personal', color: 'bg-emerald-500', hex: '#10b981' },
-  { id: 'proj-def-3', name: 'Estudio', color: 'bg-purple-500', hex: '#a855f7' }
+  { id: 'p1', name: 'UI/UX Design', color: 'bg-[#93c5fd]', hex: '#93c5fd' },
+  { id: 'p2', name: 'Personal', color: 'bg-[#34d399]', hex: '#34d399' },
+  { id: 'p3', name: 'Proyectos', color: 'bg-[#f472b6]', hex: '#f472b6' }
 ];
 
-// Claves de almacenamiento local (Offline Storage)
 const STORAGE_KEYS = {
   TASKS: 'midia_offline_tasks',
   PROJECTS: 'midia_offline_projects',
@@ -51,12 +57,12 @@ export default function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
 
-  // Estado de conexión a internet
+  // Estado de red
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-  // Datos principales
+  // Datos
   const [tasks, setTasks] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
@@ -79,11 +85,9 @@ export default function App() {
   });
 
   const [dataLoading, setDataLoading] = useState(false);
-  const [errorMessage, setErrorMessage] = useState(null);
-
-  // Estados de navegación y filtros
-  const [activeTab, setActiveTab] = useState('tasks');
+  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'agenda'
   const [selectedFilterProjectId, setSelectedFilterProjectId] = useState('all');
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(4);
 
   // Formulario nueva tarea
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -94,10 +98,11 @@ export default function App() {
   const [editingTask, setEditingTask] = useState(null);
   const [eventModal, setEventModal] = useState({ open: false, isEditing: false, data: null });
   const [projectModal, setProjectModal] = useState(false);
-  
+
+  // Estado formularios
   const [eventForm, setEventForm] = useState({
     title: '',
-    time: '10:00 AM',
+    time: '11:00 AM - 12:00 PM',
     type: 'meet',
     link: '',
     projectId: ''
@@ -105,64 +110,54 @@ export default function App() {
 
   const [projectForm, setProjectForm] = useState({
     name: '',
-    color: 'bg-blue-500',
-    hex: '#3b82f6'
+    color: 'bg-[#93c5fd]',
+    hex: '#93c5fd'
   });
 
-  // Guardar en LocalStorage cada vez que cambian los datos
+  // Guardar en caché offline
   const saveOfflineCache = useCallback((newTasks, newProjects, newEvents) => {
     try {
       if (newTasks) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(newTasks));
       if (newProjects) localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(newProjects));
       if (newEvents) localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(newEvents));
     } catch (e) {
-      console.warn('Error al guardar cache offline:', e);
+      console.warn('Error guardando cache:', e);
     }
   }, []);
 
-  // Agregar a la cola de sincronización offline
+  // Encolar acciones offline
   const enqueueOfflineAction = useCallback((action) => {
     try {
-      const currentQueue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-      currentQueue.push(action);
-      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(currentQueue));
-      setPendingSyncCount(currentQueue.length);
+      const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+      q.push(action);
+      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(q));
+      setPendingSyncCount(q.length);
     } catch (e) {
-      console.warn('Error al encolar acción offline:', e);
+      console.warn('Error encolando acción:', e);
     }
   }, []);
 
-  // Sincronizar cola de acciones pendientes con Supabase
+  // Sincronizar cola
   const syncPendingActions = useCallback(async () => {
     if (!navigator.onLine) return;
-    const currentQueue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-    if (currentQueue.length === 0) return;
+    const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+    if (q.length === 0) return;
 
     try {
       setSyncing(true);
       const remaining = [];
 
-      for (const item of currentQueue) {
+      for (const item of q) {
         try {
-          if (item.type === 'ADD_TASK') {
-            await supabase.from('tasks').insert(item.payload);
-          } else if (item.type === 'UPDATE_TASK') {
-            await supabase.from('tasks').update(item.payload.data).eq('id', item.payload.id);
-          } else if (item.type === 'DELETE_TASK') {
-            await supabase.from('tasks').delete().eq('id', item.payload.id);
-          } else if (item.type === 'ADD_EVENT') {
-            await supabase.from('events').insert(item.payload);
-          } else if (item.type === 'UPDATE_EVENT') {
-            await supabase.from('events').update(item.payload.data).eq('id', item.payload.id);
-          } else if (item.type === 'DELETE_EVENT') {
-            await supabase.from('events').delete().eq('id', item.payload.id);
-          } else if (item.type === 'ADD_PROJECT') {
-            await supabase.from('projects').insert(item.payload);
-          } else if (item.type === 'DELETE_PROJECT') {
-            await supabase.from('projects').delete().eq('id', item.payload.id);
-          }
-        } catch (err) {
-          console.error('Error sincronizando acción:', item, err);
+          if (item.type === 'ADD_TASK') await supabase.from('tasks').insert(item.payload);
+          else if (item.type === 'UPDATE_TASK') await supabase.from('tasks').update(item.payload.data).eq('id', item.payload.id);
+          else if (item.type === 'DELETE_TASK') await supabase.from('tasks').delete().eq('id', item.payload.id);
+          else if (item.type === 'ADD_EVENT') await supabase.from('events').insert(item.payload);
+          else if (item.type === 'UPDATE_EVENT') await supabase.from('events').update(item.payload.data).eq('id', item.payload.id);
+          else if (item.type === 'DELETE_EVENT') await supabase.from('events').delete().eq('id', item.payload.id);
+          else if (item.type === 'ADD_PROJECT') await supabase.from('projects').insert(item.payload);
+          else if (item.type === 'DELETE_PROJECT') await supabase.from('projects').delete().eq('id', item.payload.id);
+        } catch {
           remaining.push(item);
         }
       }
@@ -174,44 +169,32 @@ export default function App() {
     }
   }, []);
 
-  // Detectar cambios en conexión (online / offline)
+  // Eventos de conectividad
   useEffect(() => {
-    const handleOnline = () => {
-      setIsOnline(true);
-      syncPendingActions();
-    };
-    const handleOffline = () => {
-      setIsOnline(false);
-    };
+    const onOnline = () => { setIsOnline(true); syncPendingActions(); };
+    const onOffline = () => { setIsOnline(false); };
 
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
 
-    // Revisar cola existente al montar
-    const queue = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-    setPendingSyncCount(queue.length);
-    if (navigator.onLine && queue.length > 0) {
-      syncPendingActions();
-    }
+    const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
+    setPendingSyncCount(q.length);
+    if (navigator.onLine && q.length > 0) syncPendingActions();
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
     };
   }, [syncPendingActions]);
 
-  // Escuchar sesión de Supabase Auth (funciona offline si hay token previo en localStorage)
+  // Sesión Auth
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       setAuthLoading(false);
-    }).catch(() => {
-      setAuthLoading(false);
-    });
+    }).catch(() => setAuthLoading(false));
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       setAuthLoading(false);
     });
@@ -219,56 +202,41 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Cargar datos (online con Supabase, o fallback a caché si offline)
+  // Carga de datos
   const loadUserData = useCallback(async (userId) => {
-    if (!navigator.onLine) {
-      // Usar caché offline directamente
-      return;
-    }
+    if (!navigator.onLine) return;
 
     try {
       setDataLoading(true);
-      setErrorMessage(null);
-
-      // Sincronizar acciones pendientes primero
       await syncPendingActions();
 
       // Proyectos
-      const { data: userProjects, error: projectsError } = await supabase
+      const { data: userProjects } = await supabase
         .from('projects')
         .select('*')
         .order('created_at', { ascending: true });
 
-      if (projectsError) throw projectsError;
-
       let currentProjects = userProjects || [];
-
       if (currentProjects.length === 0) {
         const { data: newProjects } = await supabase
           .from('projects')
           .insert(DEFAULT_PROJECTS.map(p => ({ ...p, user_id: userId })))
           .select();
-
-        if (newProjects && newProjects.length > 0) {
-          currentProjects = newProjects;
-        }
+        if (newProjects) currentProjects = newProjects;
       }
 
       setProjects(currentProjects);
       saveOfflineCache(null, currentProjects, null);
-
       if (currentProjects.length > 0) {
         setNewTaskProjectId(currentProjects[0].id);
         setEventForm(prev => ({ ...prev, projectId: currentProjects[0].id }));
       }
 
       // Tareas
-      const { data: userTasks, error: tasksError } = await supabase
+      const { data: userTasks } = await supabase
         .from('tasks')
         .select('*')
         .order('created_at', { ascending: false });
-
-      if (tasksError) throw tasksError;
 
       const mappedTasks = (userTasks || []).map(t => ({
         id: t.id,
@@ -280,12 +248,10 @@ export default function App() {
       saveOfflineCache(mappedTasks, null, null);
 
       // Eventos
-      const { data: userEvents, error: eventsError } = await supabase
+      const { data: userEvents } = await supabase
         .from('events')
         .select('*')
         .order('created_at', { ascending: true });
-
-      if (eventsError) throw eventsError;
 
       const mappedEvents = (userEvents || []).map(e => ({
         id: e.id,
@@ -299,53 +265,36 @@ export default function App() {
       saveOfflineCache(null, null, mappedEvents);
 
     } catch (err) {
-      console.warn('Modo sin conexión o fallo de red. Cargando desde caché offline.', err);
+      console.warn('Error sincronizando Supabase:', err);
     } finally {
       setDataLoading(false);
     }
   }, [syncPendingActions, saveOfflineCache]);
 
   useEffect(() => {
-    if (session?.user?.id) {
-      loadUserData(session.user.id);
-    }
+    if (session?.user?.id) loadUserData(session.user.id);
   }, [session, loadUserData]);
 
   const handleLogout = async () => {
-    try {
-      await supabase.auth.signOut();
-      setTasks([]);
-      setProjects([]);
-      setEvents([]);
-      localStorage.removeItem(STORAGE_KEYS.TASKS);
-      localStorage.removeItem(STORAGE_KEYS.PROJECTS);
-      localStorage.removeItem(STORAGE_KEYS.EVENTS);
-    } catch (err) {
-      console.error('Error al cerrar sesión:', err);
-    }
+    await supabase.auth.signOut();
+    setTasks([]);
+    setProjects([]);
+    setEvents([]);
+    localStorage.clear();
   };
 
-  // ==========================================
-  // OPERACIONES OFFLINE / ONLINE DE TAREAS
-  // ==========================================
-
+  // CRUD TAREAS
   const handleAddTask = async (e) => {
     e.preventDefault();
     if (!newTaskTitle.trim() || !session?.user?.id) return;
 
-    const tempId = 'task-' + Date.now();
-    const projId = newTaskProjectId || (projects[0]?.id || null);
-    const newTask = {
-      id: tempId,
-      title: newTaskTitle.trim(),
-      completed: false,
-      projectId: projId
-    };
+    const tempId = 't-' + Date.now();
+    const projId = newTaskProjectId || projects[0]?.id;
+    const newTask = { id: tempId, title: newTaskTitle.trim(), completed: false, projectId: projId };
 
-    // Actualización local inmediata
-    const updatedTasks = [newTask, ...tasks];
-    setTasks(updatedTasks);
-    saveOfflineCache(updatedTasks, null, null);
+    const updated = [newTask, ...tasks];
+    setTasks(updated);
+    saveOfflineCache(updated, null, null);
     setNewTaskTitle('');
 
     const payload = {
@@ -359,11 +308,8 @@ export default function App() {
     if (navigator.onLine) {
       try {
         setSubmittingTask(true);
-        const { data, error } = await supabase.from('tasks').insert([payload]).select().single();
-        if (error) throw error;
-        if (data) {
-          setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
-        }
+        const { data } = await supabase.from('tasks').insert([payload]).select().single();
+        if (data) setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
       } catch {
         enqueueOfflineAction({ type: 'ADD_TASK', payload });
       } finally {
@@ -379,9 +325,9 @@ export default function App() {
     if (!task) return;
 
     const newCompleted = !task.completed;
-    const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t);
-    setTasks(updatedTasks);
-    saveOfflineCache(updatedTasks, null, null);
+    const updated = tasks.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t);
+    setTasks(updated);
+    saveOfflineCache(updated, null, null);
 
     if (navigator.onLine) {
       try {
@@ -398,11 +344,11 @@ export default function App() {
     e.preventDefault();
     if (!editingTask || !editingTask.title.trim()) return;
 
-    const updatedTasks = tasks.map(t => 
+    const updated = tasks.map(t => 
       t.id === editingTask.id ? { ...t, title: editingTask.title.trim(), projectId: editingTask.projectId } : t
     );
-    setTasks(updatedTasks);
-    saveOfflineCache(updatedTasks, null, null);
+    setTasks(updated);
+    saveOfflineCache(updated, null, null);
 
     const dataToUpdate = { title: editingTask.title.trim(), project_id: editingTask.projectId };
 
@@ -415,14 +361,13 @@ export default function App() {
     } else {
       enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: editingTask.id, data: dataToUpdate } });
     }
-
     setEditingTask(null);
   };
 
   const deleteTask = async (taskId) => {
-    const updatedTasks = tasks.filter(t => t.id !== taskId);
-    setTasks(updatedTasks);
-    saveOfflineCache(updatedTasks, null, null);
+    const updated = tasks.filter(t => t.id !== taskId);
+    setTasks(updated);
+    saveOfflineCache(updated, null, null);
 
     if (navigator.onLine) {
       try {
@@ -435,14 +380,11 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // OPERACIONES OFFLINE / ONLINE DE EVENTOS
-  // ==========================================
-
+  // CRUD EVENTOS
   const openCreateEventModal = () => {
     setEventForm({
       title: '',
-      time: '10:00 AM',
+      time: '11:00 AM - 12:00 PM',
       type: 'meet',
       link: '',
       projectId: projects[0]?.id || ''
@@ -466,7 +408,7 @@ export default function App() {
     if (!eventForm.title.trim() || !session?.user?.id) return;
 
     if (eventModal.isEditing && eventModal.data) {
-      const updatedEvents = events.map(ev => 
+      const updated = events.map(ev => 
         ev.id === eventModal.data.id ? {
           ...ev,
           title: eventForm.title.trim(),
@@ -476,8 +418,8 @@ export default function App() {
           projectId: eventForm.projectId
         } : ev
       );
-      setEvents(updatedEvents);
-      saveOfflineCache(null, null, updatedEvents);
+      setEvents(updated);
+      saveOfflineCache(null, null, updated);
 
       const dataToUpdate = {
         title: eventForm.title.trim(),
@@ -497,7 +439,7 @@ export default function App() {
         enqueueOfflineAction({ type: 'UPDATE_EVENT', payload: { id: eventModal.data.id, data: dataToUpdate } });
       }
     } else {
-      const tempId = 'event-' + Date.now();
+      const tempId = 'e-' + Date.now();
       const newEvent = {
         id: tempId,
         title: eventForm.title.trim(),
@@ -507,9 +449,9 @@ export default function App() {
         projectId: eventForm.projectId || projects[0]?.id
       };
 
-      const updatedEvents = [...events, newEvent];
-      setEvents(updatedEvents);
-      saveOfflineCache(null, null, updatedEvents);
+      const updated = [...events, newEvent];
+      setEvents(updated);
+      saveOfflineCache(null, null, updated);
 
       const payload = {
         id: tempId,
@@ -524,9 +466,7 @@ export default function App() {
       if (navigator.onLine) {
         try {
           const { data } = await supabase.from('events').insert([payload]).select().single();
-          if (data) {
-            setEvents(prev => prev.map(ev => ev.id === tempId ? { ...ev, id: data.id } : ev));
-          }
+          if (data) setEvents(prev => prev.map(ev => ev.id === tempId ? { ...ev, id: data.id } : ev));
         } catch {
           enqueueOfflineAction({ type: 'ADD_EVENT', payload });
         }
@@ -534,15 +474,13 @@ export default function App() {
         enqueueOfflineAction({ type: 'ADD_EVENT', payload });
       }
     }
-
     setEventModal({ open: false, isEditing: false, data: null });
   };
 
   const handleDeleteEvent = async (eventId) => {
-    if (!confirm('¿Deseas eliminar este evento?')) return;
-    const updatedEvents = events.filter(e => e.id !== eventId);
-    setEvents(updatedEvents);
-    saveOfflineCache(null, null, updatedEvents);
+    const updated = events.filter(e => e.id !== eventId);
+    setEvents(updated);
+    saveOfflineCache(null, null, updated);
 
     if (navigator.onLine) {
       try {
@@ -555,15 +493,12 @@ export default function App() {
     }
   };
 
-  // ==========================================
-  // OPERACIONES OFFLINE / ONLINE DE PROYECTOS
-  // ==========================================
-
+  // CRUD PROYECTOS
   const handleCreateProject = async (e) => {
     e.preventDefault();
     if (!projectForm.name.trim() || !session?.user?.id) return;
 
-    const tempId = 'proj-' + Date.now();
+    const tempId = 'p-' + Date.now();
     const newProj = {
       id: tempId,
       name: projectForm.name.trim(),
@@ -571,10 +506,10 @@ export default function App() {
       hex: projectForm.hex
     };
 
-    const updatedProjects = [...projects, newProj];
-    setProjects(updatedProjects);
-    saveOfflineCache(null, updatedProjects, null);
-    setProjectForm({ name: '', color: 'bg-blue-500', hex: '#3b82f6' });
+    const updated = [...projects, newProj];
+    setProjects(updated);
+    saveOfflineCache(null, updated, null);
+    setProjectForm({ name: '', color: 'bg-[#93c5fd]', hex: '#93c5fd' });
     setProjectModal(false);
 
     const payload = {
@@ -588,9 +523,7 @@ export default function App() {
     if (navigator.onLine) {
       try {
         const { data } = await supabase.from('projects').insert([payload]).select().single();
-        if (data) {
-          setProjects(prev => prev.map(p => p.id === tempId ? data : p));
-        }
+        if (data) setProjects(prev => prev.map(p => p.id === tempId ? data : p));
       } catch {
         enqueueOfflineAction({ type: 'ADD_PROJECT', payload });
       }
@@ -599,42 +532,13 @@ export default function App() {
     }
   };
 
-  const handleDeleteProject = async (projectId) => {
-    if (projects.length <= 1) {
-      alert('Debes mantener al menos un proyecto.');
-      return;
-    }
-    if (!confirm('¿Eliminar este proyecto?')) return;
-
-    const updatedProjects = projects.filter(p => p.id !== projectId);
-    setProjects(updatedProjects);
-    saveOfflineCache(null, updatedProjects, null);
-    if (selectedFilterProjectId === projectId) setSelectedFilterProjectId('all');
-
-    if (navigator.onLine) {
-      try {
-        await supabase.from('projects').delete().eq('id', projectId);
-      } catch {
-        enqueueOfflineAction({ type: 'DELETE_PROJECT', payload: { id: projectId } });
-      }
-    } else {
-      enqueueOfflineAction({ type: 'DELETE_PROJECT', payload: { id: projectId } });
-    }
-  };
-
   const getProjectDetails = (projectId) => {
     return projects.find(p => p.id === projectId) || projects[0] || {
       name: 'General',
-      color: 'bg-slate-400',
-      hex: '#94a3b8'
+      color: 'bg-[#93c5fd]',
+      hex: '#93c5fd'
     };
   };
-
-  const formattedDate = new Intl.DateTimeFormat('es-ES', { 
-    weekday: 'long', 
-    month: 'long', 
-    day: 'numeric' 
-  }).format(new Date());
 
   const filteredTasks = selectedFilterProjectId === 'all' 
     ? tasks 
@@ -642,9 +546,9 @@ export default function App() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center text-white gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
-        <p className="text-sm text-slate-400">Iniciando Mi Día...</p>
+      <div className="min-h-screen bg-[#0b0d11] flex flex-col items-center justify-center text-white gap-3">
+        <Loader2 className="w-8 h-8 animate-spin text-[#34d399]" />
+        <p className="text-sm text-neutral-400">Iniciando Mi Día...</p>
       </div>
     );
   }
@@ -653,421 +557,515 @@ export default function App() {
     return <Auth />;
   }
 
-  const TaskCard = ({ task }) => {
-    const project = getProjectDetails(task.projectId);
-    
-    return (
-      <div className={`group flex items-center justify-between p-3 md:p-4 mb-2 bg-white rounded-xl shadow-sm border ${task.completed ? 'border-slate-100 opacity-60' : 'border-slate-200'} transition-all`}>
-        <div className="flex items-center gap-3 md:gap-4 flex-1 overflow-hidden">
-          <button 
-            type="button"
-            onClick={() => toggleTask(task.id)}
-            className={`flex-shrink-0 transition-colors ${task.completed ? 'text-slate-400' : 'text-slate-300 hover:text-slate-500'}`}
-          >
-            {task.completed ? <CheckCircle2 className="w-5 h-5 md:w-6 md:h-6 text-slate-900" /> : <Circle className="w-5 h-5 md:w-6 md:h-6" />}
-          </button>
-          <div className="flex flex-col min-w-0 flex-1">
-            <span className={`text-sm md:text-base font-medium truncate ${task.completed ? 'line-through text-slate-500' : 'text-slate-800'}`}>
-              {task.title}
-            </span>
-            <div className="flex items-center gap-1.5 mt-1">
-              <span className={`w-2 h-2 rounded-full ${project.color}`}></span>
-              <span className="text-[10px] md:text-xs text-slate-500 font-medium">{project.name}</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1">
-          <button 
-            type="button"
-            onClick={() => setEditingTask({ id: task.id, title: task.title, projectId: task.projectId })}
-            className="text-slate-400 hover:text-blue-600 p-2 rounded-lg hover:bg-slate-50 transition-colors"
-            title="Editar tarea"
-          >
-            <Edit3 className="w-4 h-4" />
-          </button>
-          <button 
-            type="button"
-            onClick={() => deleteTask(task.id)}
-            className="text-slate-400 hover:text-red-500 p-2 rounded-lg hover:bg-slate-50 transition-colors"
-            title="Eliminar tarea"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const EventCard = ({ event }) => {
-    const project = getProjectDetails(event.projectId);
-    
-    return (
-      <div className="flex flex-col p-4 mb-3 bg-white rounded-xl shadow-sm border border-slate-100 border-l-4 group" style={{ borderLeftColor: project.hex }}>
-        <div className="flex justify-between items-start">
-          <div>
-            <h4 className="text-sm font-semibold text-slate-800">{event.title}</h4>
-            <span className="flex items-center gap-1 text-xs text-slate-500 mt-1">
-              <Clock className="w-3 h-3" />
-              {event.time}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <div className={`p-1.5 rounded-lg ${event.type === 'meet' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
-              {event.type === 'meet' ? <Video className="w-4 h-4" /> : <CalendarIcon className="w-4 h-4" />}
-            </div>
-
-            <button
-              type="button"
-              onClick={() => openEditEventModal(event)}
-              className="text-slate-400 hover:text-blue-600 p-1 rounded transition-colors"
-              title="Editar evento"
-            >
-              <Edit3 className="w-3.5 h-3.5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeleteEvent(event.id)}
-              className="text-slate-400 hover:text-red-500 p-1 rounded transition-colors"
-              title="Eliminar evento"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-        
-        {event.link && (
-          <div className="mt-3 pt-3 border-t border-slate-100">
-            <a 
-              href={event.link.startsWith('http') ? event.link : `https://${event.link}`} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-2 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-2 md:py-1.5 rounded-lg transition-colors w-full md:w-auto justify-center"
-            >
-              Unirse a Google Meet
-            </a>
-          </div>
-        )}
-      </div>
-    );
-  };
-
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans md:p-8 flex justify-center pb-24 md:pb-8">
-      <div className="max-w-5xl w-full grid grid-cols-1 lg:grid-cols-3 gap-0 md:gap-8">
+    <div className="min-h-screen bg-[#0b0d11] text-slate-100 font-sans p-3 sm:p-6 md:p-8 flex justify-center pb-28 md:pb-8 selection:bg-[#34d399] selection:text-black">
+      
+      {/* Contenedor Principal */}
+      <div className="max-w-6xl w-full flex flex-col md:flex-row gap-6 items-start">
         
         {/* ======================================================== */}
-        {/* COLUMNA IZQUIERDA: TAREAS */}
+        {/* SIDEBAR FLOTANTE VERTICAL (Estilo cápsula de la izquierda) */}
         {/* ======================================================== */}
-        <div className={`lg:col-span-2 space-y-5 p-4 md:p-0 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
+        <aside className="hidden lg:flex flex-col items-center justify-between bg-[#181a20] border border-white/5 rounded-[36px] py-6 px-3 shadow-2xl shadow-black/80 w-16 flex-shrink-0 sticky top-8">
           
-          {/* Header con Perfil y Estado Offline */}
-          <header className="mb-4 md:mb-6 mt-2 md:mt-0 flex items-start justify-between">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <h1 className="text-2xl md:text-3xl font-bold text-slate-900 capitalize">
-                  {formattedDate}
-                </h1>
-                
-                {/* Badge indicador Offline / Online */}
+          {/* Logo / Emojisuperior */}
+          <div className="w-10 h-10 rounded-2xl bg-[#22252c] border border-white/5 flex items-center justify-center text-xl shadow-inner mb-6">
+            👍
+          </div>
+
+          {/* Navegación vertical */}
+          <div className="flex flex-col items-center gap-6">
+            <button
+              onClick={() => openCreateEventModal()}
+              title="Añadir evento"
+              className="text-neutral-400 hover:text-white transition-colors p-2"
+            >
+              <Plus className="w-5 h-5" />
+            </button>
+
+            {/* Pestaña Tareas con punto indicador activo menta */}
+            <button
+              onClick={() => setActiveTab('tasks')}
+              title="Tareas"
+              className="relative p-2 text-neutral-400 hover:text-white transition-colors"
+            >
+              <ListTodo className={`w-5 h-5 ${activeTab === 'tasks' ? 'text-[#34d399]' : ''}`} />
+              {activeTab === 'tasks' && (
+                <span className="absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#34d399]"></span>
+              )}
+            </button>
+
+            {/* Pestaña Agenda */}
+            <button
+              onClick={() => setActiveTab('agenda')}
+              title="Agenda y Calendario"
+              className="relative p-2 text-neutral-400 hover:text-white transition-colors"
+            >
+              <CalendarIcon className={`w-5 h-5 ${activeTab === 'agenda' ? 'text-[#34d399]' : ''}`} />
+              {activeTab === 'agenda' && (
+                <span className="absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#34d399]"></span>
+              )}
+            </button>
+
+            <button
+              onClick={() => setProjectModal(true)}
+              title="Proyectos"
+              className="text-neutral-400 hover:text-white transition-colors p-2"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+
+            <button
+              onClick={() => alert(`Usuario: ${session?.user?.email}`)}
+              title="Mensajes / Estado"
+              className="text-neutral-400 hover:text-white transition-colors p-2"
+            >
+              <MessageSquare className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* Botón Salir en la base */}
+          <button
+            onClick={handleLogout}
+            title="Cerrar sesión"
+            className="mt-6 p-2 text-neutral-500 hover:text-rose-400 transition-colors"
+          >
+            <LogOut className="w-5 h-5" />
+          </button>
+        </aside>
+
+        {/* ======================================================== */}
+        {/* GRID CENTRAL: 2 COLUMNAS (Estilo exacto de las tarjetas) */}
+        {/* ======================================================== */}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
+          
+          {/* ------------------------------------------------------ */}
+          {/* COLUMNA 1: Calendario, Selector de Color y Tareas */}
+          {/* ------------------------------------------------------ */}
+          <div className={`lg:col-span-6 space-y-6 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
+            
+            {/* Header móvil y barra de estado */}
+            <div className="flex items-center justify-between px-1">
+              <div>
+                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Mi Día</h1>
+                <p className="text-xs text-neutral-400">
+                  {tasks.filter(t => !t.completed).length} pendientes para hoy
+                </p>
+              </div>
+
+              {/* Indicador Offline / Online */}
+              <div className="flex items-center gap-2">
                 {!isOnline ? (
-                  <span className="inline-flex items-center gap-1 bg-amber-100 text-amber-800 text-[11px] font-semibold px-2.5 py-1 rounded-full shadow-sm animate-pulse">
-                    <WifiOff className="w-3 h-3 text-amber-600" />
-                    Sin Wi-Fi (Offline)
+                  <span className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs px-3 py-1 rounded-full font-medium">
+                    <WifiOff className="w-3.5 h-3.5" /> Offline
                   </span>
                 ) : pendingSyncCount > 0 ? (
-                  <span className="inline-flex items-center gap-1 bg-blue-100 text-blue-800 text-[11px] font-medium px-2.5 py-1 rounded-full">
-                    <CloudUpload className="w-3 h-3 animate-bounce" />
-                    Sincronizando ({pendingSyncCount})
+                  <span className="inline-flex items-center gap-1.5 bg-[#34d399]/10 text-[#34d399] text-xs px-3 py-1 rounded-full font-medium">
+                    <CloudUpload className="w-3.5 h-3.5 animate-bounce" /> Subiendo ({pendingSyncCount})
                   </span>
                 ) : (
-                  <span className="hidden sm:inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-medium px-2 py-0.5 rounded-full border border-emerald-200">
-                    <Wifi className="w-2.5 h-2.5 text-emerald-600" /> En línea
+                  <span className="inline-flex items-center gap-1.5 bg-[#181a20] border border-white/5 text-neutral-400 text-xs px-3 py-1 rounded-full">
+                    <span className="w-2 h-2 rounded-full bg-[#34d399]"></span> En línea
                   </span>
                 )}
-              </div>
-
-              <p className="text-sm md:text-base text-slate-500">
-                Tienes {tasks.filter(t => !t.completed).length} tareas pendientes para hoy.
-              </p>
-            </div>
-
-            {/* Perfil y Salir */}
-            <div className="flex items-center gap-2">
-              <span className="hidden sm:inline-block text-xs text-slate-500 max-w-[130px] truncate">
-                {session?.user?.email}
-              </span>
-              <button 
-                type="button"
-                onClick={handleLogout}
-                title="Cerrar sesión"
-                className="flex items-center gap-1.5 text-xs text-slate-600 hover:text-rose-600 bg-white hover:bg-rose-50 border border-slate-200 hover:border-rose-200 px-3 py-2 rounded-xl transition-colors shadow-sm"
-              >
-                <LogOut className="w-4 h-4" />
-                <span className="hidden sm:inline">Salir</span>
-              </button>
-            </div>
-          </header>
-
-          {/* Banner de Aviso Offline */}
-          {!isOnline && (
-            <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-2xl text-amber-800 text-xs flex items-center gap-2.5">
-              <WifiOff className="w-4 h-4 flex-shrink-0 text-amber-600" />
-              <span>Estás usando la app sin conexión. Puedes crear, completar y borrar tareas; todo se sincronizará automáticamente cuando vuelva el internet.</span>
-            </div>
-          )}
-
-          {/* Formulario Pegajoso de Tareas */}
-          <form onSubmit={handleAddTask} className="bg-white p-2 rounded-2xl shadow-sm border border-slate-200 flex items-center gap-2 sticky top-4 z-10">
-            <input
-              type="text"
-              placeholder="Añadir nueva tarea..."
-              value={newTaskTitle}
-              onChange={(e) => setNewTaskTitle(e.target.value)}
-              className="flex-1 bg-transparent border-none focus:ring-0 px-3 md:px-4 py-3 text-base text-slate-700 outline-none placeholder-slate-400 min-w-0"
-            />
-            
-            <select
-              value={newTaskProjectId}
-              onChange={(e) => setNewTaskProjectId(e.target.value)}
-              className="bg-slate-50 text-slate-600 text-xs md:text-sm rounded-xl px-2 md:px-3 py-3 border-none focus:ring-2 focus:ring-slate-200 outline-none appearance-none cursor-pointer max-w-[105px] md:max-w-none"
-            >
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            
-            <button
-              type="submit"
-              disabled={!newTaskTitle.trim() || submittingTask}
-              className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white p-3 rounded-xl transition-colors focus:outline-none focus:ring-2 focus:ring-slate-900 focus:ring-offset-2 flex-shrink-0"
-            >
-              {submittingTask ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-            </button>
-          </form>
-
-          {/* Filtro por Proyecto */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-1 text-xs">
-            <span className="text-slate-400 flex items-center gap-1 flex-shrink-0">
-              <Filter className="w-3.5 h-3.5" /> Filtrar:
-            </span>
-            <button
-              type="button"
-              onClick={() => setSelectedFilterProjectId('all')}
-              className={`px-3 py-1.5 rounded-full font-medium transition-all flex-shrink-0 ${
-                selectedFilterProjectId === 'all'
-                  ? 'bg-slate-900 text-white'
-                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-              }`}
-            >
-              Todos ({tasks.length})
-            </button>
-            {projects.map(p => (
-              <button
-                key={p.id}
-                type="button"
-                onClick={() => setSelectedFilterProjectId(p.id)}
-                className={`px-3 py-1.5 rounded-full font-medium transition-all flex items-center gap-1.5 flex-shrink-0 ${
-                  selectedFilterProjectId === p.id
-                    ? 'bg-slate-900 text-white'
-                    : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'
-                }`}
-              >
-                <span className={`w-2 h-2 rounded-full ${p.color}`}></span>
-                {p.name} ({tasks.filter(t => t.projectId === p.id).length})
-              </button>
-            ))}
-          </div>
-
-          {/* Lista de Tareas */}
-          <div className="mt-4">
-            <h2 className="text-base md:text-lg font-semibold text-slate-800 mb-3 md:mb-4 flex items-center gap-2">
-              <Folder className="w-5 h-5 text-slate-400" />
-              Tus Tareas
-            </h2>
-            
-            {dataLoading ? (
-              <div className="flex items-center justify-center p-12 text-slate-400 gap-2">
-                <Loader2 className="w-5 h-5 animate-spin text-slate-600" />
-                <span className="text-sm">Cargando tareas...</span>
-              </div>
-            ) : (
-              <>
-                <div className="space-y-2 md:space-y-1">
-                  {filteredTasks.filter(t => !t.completed).length === 0 ? (
-                    <div className="text-center p-8 bg-white rounded-2xl border border-slate-100">
-                      <p className="text-slate-400 text-sm">
-                        {tasks.length === 0 
-                          ? 'No tienes tareas pendientes para hoy. ¡Añade una arriba!' 
-                          : 'No hay tareas pendientes en este proyecto.'}
-                      </p>
-                    </div>
-                  ) : (
-                    filteredTasks.filter(t => !t.completed).map(task => (
-                      <TaskCard key={task.id} task={task} />
-                    ))
-                  )}
-                </div>
-
-                {/* Tareas Completadas */}
-                {filteredTasks.filter(t => t.completed).length > 0 && (
-                  <div className="mt-8">
-                    <h3 className="text-sm font-medium text-slate-500 mb-3 px-2">Completadas</h3>
-                    <div className="space-y-2 md:space-y-1">
-                      {filteredTasks.filter(t => t.completed).map(task => (
-                        <TaskCard key={task.id} task={task} />
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* ======================================================== */}
-        {/* COLUMNA DERECHA: CALENDARIO, AGENDA Y PROYECTOS */}
-        {/* ======================================================== */}
-        <div className={`space-y-6 p-4 md:p-0 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
-          
-          {/* Calendario */}
-          <div className="bg-white p-5 md:p-6 rounded-2xl shadow-sm border border-slate-100 mt-2 md:mt-0">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-semibold text-slate-800">Octubre 2026</h3>
-              <div className="flex gap-2">
-                <div className="w-8 h-8 md:w-6 md:h-6 rounded-full bg-slate-100 flex items-center justify-center text-sm md:text-xs text-slate-500 cursor-pointer hover:bg-slate-200">&lt;</div>
-                <div className="w-8 h-8 md:w-6 md:h-6 rounded-full bg-slate-100 flex items-center justify-center text-sm md:text-xs text-slate-500 cursor-pointer hover:bg-slate-200">&gt;</div>
-              </div>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-xs mb-2">
-              <span className="text-slate-400 font-medium">Do</span>
-              <span className="text-slate-400 font-medium">Lu</span>
-              <span className="text-slate-400 font-medium">Ma</span>
-              <span className="text-slate-400 font-medium">Mi</span>
-              <span className="text-slate-400 font-medium">Ju</span>
-              <span className="text-slate-400 font-medium">Vi</span>
-              <span className="text-slate-400 font-medium">Sa</span>
-            </div>
-            <div className="grid grid-cols-7 gap-1 text-center text-sm">
-              {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
-                <div 
-                  key={day} 
-                  className={`w-8 h-8 flex items-center justify-center rounded-full mx-auto cursor-pointer transition-colors
-                    ${day === 5 ? 'bg-slate-900 text-white font-medium shadow-md' : 'text-slate-600 hover:bg-slate-100'}
-                  `}
+                <button
+                  onClick={handleLogout}
+                  title="Cerrar sesión"
+                  className="lg:hidden p-2 text-neutral-400 hover:text-rose-400 bg-[#181a20] rounded-xl border border-white/5"
                 >
-                  {day}
-                </div>
-              ))}
+                  <LogOut className="w-4 h-4" />
+                </button>
+              </div>
             </div>
-          </div>
 
-          {/* Agenda de Hoy con Botón de "+ Evento" */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <h2 className="text-base md:text-lg font-semibold text-slate-800 flex items-center gap-2">
-                <CalendarIcon className="w-5 h-5 text-slate-400" />
-                Agenda de Hoy
-              </h2>
-              <button
-                type="button"
-                onClick={openCreateEventModal}
-                className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-2.5 py-1.5 rounded-lg transition-colors"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>Evento</span>
-              </button>
-            </div>
-            <p className="text-xs text-slate-500 mb-4 px-1">
-              {isOnline ? 'Sincronizado con Supabase' : 'Modo Offline (Guardado localmente)'}
-            </p>
-            
-            <div className="space-y-2 md:space-y-1">
-              {events.length > 0 ? (
-                events.map(event => (
-                  <EventCard key={event.id} event={event} />
-                ))
-              ) : (
-                <div className="text-center p-8 bg-slate-50 rounded-2xl border border-slate-100 border-dashed">
-                  <p className="text-slate-500 text-sm">No tienes eventos programados.</p>
+            {/* TARJETA 1: Calendario Neumórfico (Exacto a la imagen) */}
+            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
+              <div className="flex items-center justify-between mb-4">
+                <button className="flex items-center gap-1.5 font-bold text-white text-sm sm:text-base hover:text-neutral-200">
+                  <span>Octubre, 2026</span>
+                  <ChevronDown className="w-4 h-4 text-neutral-400" />
+                </button>
+                <button 
+                  onClick={() => openCreateEventModal()}
+                  className="text-amber-400 hover:text-amber-300 font-bold text-lg p-1 transition-transform hover:scale-110"
+                >
+                  +
+                </button>
+              </div>
+
+              {/* Días de la semana con 'S' en rojo coral */}
+              <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold mb-3">
+                <span className="text-rose-400">S</span>
+                <span className="text-neutral-400">M</span>
+                <span className="text-neutral-400">T</span>
+                <span className="text-neutral-400">W</span>
+                <span className="text-neutral-400">T</span>
+                <span className="text-neutral-400">F</span>
+                <span className="text-rose-400">S</span>
+              </div>
+
+              {/* Días numerados: el seleccionado con círculo menta */}
+              <div className="grid grid-cols-7 gap-1 text-center text-xs">
+                {[1, 2, 3, 4, 5, 6, 7].map(day => (
                   <button
-                    type="button"
-                    onClick={openCreateEventModal}
-                    className="mt-3 text-xs text-blue-600 hover:underline inline-flex items-center gap-1"
+                    key={day}
+                    onClick={() => setSelectedCalendarDay(day)}
+                    className={`w-9 h-9 mx-auto rounded-full flex items-center justify-center font-bold transition-all ${
+                      selectedCalendarDay === day
+                        ? 'bg-[#34d399] text-[#0b0d11] shadow-lg shadow-[#34d399]/30 scale-105'
+                        : 'bg-[#121417] text-neutral-300 hover:bg-[#20232a]'
+                    }`}
                   >
-                    <Plus className="w-3 h-3" /> Crear el primer evento
+                    {day}
                   </button>
+                ))}
+              </div>
+            </div>
+
+            {/* TARJETA 2: Selector de Color / Proyectos ("CHOOSE A COLOR :") */}
+            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
+              <h3 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-3">
+                CHOOSE A COLOR :
+              </h3>
+              
+              <div className="flex items-center gap-3">
+                {COLOR_OPTIONS.slice(0, 4).map(c => (
+                  <button
+                    key={c.hex}
+                    onClick={() => setProjectForm(prev => ({ ...prev, color: c.color, hex: c.hex }))}
+                    className={`w-10 h-10 rounded-2xl ${c.color} flex items-center justify-center transition-transform hover:scale-105 shadow-inner ${
+                      projectForm.hex === c.hex ? 'ring-2 ring-white ring-offset-2 ring-offset-[#181a20]' : ''
+                    }`}
+                  >
+                    {projectForm.hex === c.hex && (
+                      <Check className={`w-4 h-4 ${c.text} stroke-[3]`} />
+                    )}
+                  </button>
+                ))}
+
+                {/* Divisor vertical */}
+                <div className="h-6 w-px bg-white/10 mx-1"></div>
+
+                {/* Botón selector personalizado / Nuevo proyecto */}
+                <button
+                  onClick={() => setProjectModal(true)}
+                  title="Crear nuevo proyecto con color"
+                  className="w-10 h-10 rounded-2xl bg-[#34d399] text-[#0b0d11] flex items-center justify-center transition-transform hover:scale-105 shadow-lg shadow-[#34d399]/20"
+                >
+                  <Pipette className="w-4 h-4" />
+                </button>
+              </div>
+            </div>
+
+            {/* TARJETA 3: Evento rápido resaltado */}
+            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-4 flex items-center gap-4 shadow-2xl shadow-black/50">
+              <div className="w-12 h-12 rounded-2xl bg-[#34d399] flex items-center justify-center text-[#0b0d11] shadow-lg shadow-[#34d399]/20 flex-shrink-0">
+                <CalendarIcon className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <span className="text-xs text-neutral-400 font-medium block">
+                  {selectedCalendarDay}th Octubre
+                </span>
+                <span className="text-sm font-bold text-white tracking-wide">
+                  11:00AM - 12:00PM
+                </span>
+              </div>
+            </div>
+
+            {/* FORMULARIO PARA AGREGAR TAREA */}
+            <form onSubmit={handleAddTask} className="bg-[#181a20] border border-white/5 rounded-[24px] p-2 flex items-center gap-2 shadow-2xl">
+              <input
+                type="text"
+                placeholder="Nueva tarea pendiente..."
+                value={newTaskTitle}
+                onChange={(e) => setNewTaskTitle(e.target.value)}
+                className="flex-1 bg-transparent px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none"
+              />
+              <select
+                value={newTaskProjectId}
+                onChange={(e) => setNewTaskProjectId(e.target.value)}
+                className="bg-[#121417] text-neutral-300 text-xs rounded-xl px-2.5 py-2.5 border border-white/5 focus:outline-none cursor-pointer"
+              >
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+              <button
+                type="submit"
+                disabled={!newTaskTitle.trim() || submittingTask}
+                className="bg-[#34d399] text-[#0b0d11] p-2.5 rounded-xl font-bold hover:bg-[#2ecc71] transition-all disabled:opacity-40"
+              >
+                <Plus className="w-4 h-4 stroke-[3]" />
+              </button>
+            </form>
+
+            {/* LISTA DE TAREAS */}
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between px-1">
+                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
+                  Tus Tareas ({filteredTasks.length})
+                </h3>
+                {/* Filtro rápido */}
+                <div className="flex gap-1.5 overflow-x-auto text-[11px]">
+                  <button
+                    onClick={() => setSelectedFilterProjectId('all')}
+                    className={`px-2.5 py-1 rounded-full font-medium transition ${
+                      selectedFilterProjectId === 'all' ? 'bg-[#34d399] text-[#0b0d11]' : 'text-neutral-400 hover:text-white'
+                    }`}
+                  >
+                    Todas
+                  </button>
+                  {projects.map(p => (
+                    <button
+                      key={p.id}
+                      onClick={() => setSelectedFilterProjectId(p.id)}
+                      className={`px-2.5 py-1 rounded-full font-medium transition flex items-center gap-1 ${
+                        selectedFilterProjectId === p.id ? 'bg-[#34d399] text-[#0b0d11]' : 'text-neutral-400 hover:text-white'
+                      }`}
+                    >
+                      <span className={`w-1.5 h-1.5 rounded-full ${p.color}`}></span>
+                      {p.name}
+                    </button>
+                  ))}
                 </div>
+              </div>
+
+              {filteredTasks.length === 0 ? (
+                <div className="bg-[#181a20] border border-white/5 rounded-2xl p-6 text-center text-neutral-500 text-xs">
+                  No hay tareas pendientes en este proyecto.
+                </div>
+              ) : (
+                filteredTasks.map(task => {
+                  const proj = getProjectDetails(task.projectId);
+                  return (
+                    <div
+                      key={task.id}
+                      className="bg-[#181a20] border border-white/5 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-lg hover:border-white/10 transition-all group"
+                    >
+                      <div className="flex items-center gap-3 min-w-0 flex-1">
+                        <button
+                          onClick={() => toggleTask(task.id)}
+                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
+                            task.completed
+                              ? 'bg-[#34d399] text-[#0b0d11] shadow-md shadow-[#34d399]/30'
+                              : 'border-2 border-neutral-600 hover:border-[#34d399]'
+                          }`}
+                        >
+                          {task.completed && <Check className="w-3.5 h-3.5 stroke-[3]" />}
+                        </button>
+                        <div className="min-w-0 flex-1">
+                          <p className={`text-sm font-medium truncate ${task.completed ? 'line-through text-neutral-500' : 'text-neutral-200'}`}>
+                            {task.title}
+                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <span className={`w-1.5 h-1.5 rounded-full ${proj.color}`}></span>
+                            <span className="text-[10px] text-neutral-400">{proj.name}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Acciones de la tarea */}
+                      <div className="flex items-center gap-1 bg-[#121417] p-1 rounded-xl border border-white/5">
+                        <button
+                          onClick={() => setEditingTask(task)}
+                          className="p-1.5 text-neutral-400 hover:text-white rounded-lg transition"
+                          title="Editar"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={() => deleteTask(task.id)}
+                          className="p-1.5 text-neutral-400 hover:text-rose-400 rounded-lg transition"
+                          title="Eliminar"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
-          </div>
-          
-          {/* Tus Proyectos */}
-          <div className="bg-white p-5 rounded-2xl shadow-sm border border-slate-100 mt-6">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-slate-800">Tus Proyectos</h3>
-              <button
-                type="button"
-                onClick={() => setProjectModal(true)}
-                className="text-xs font-medium text-blue-600 hover:text-blue-800 flex items-center gap-1 hover:underline"
-              >
-                <Plus className="w-3.5 h-3.5" /> Nuevo
-              </button>
-            </div>
 
-            <div className="space-y-2">
-              {projects.map(project => (
-                <div key={project.id} className="flex items-center justify-between py-1 px-2 rounded-lg hover:bg-slate-50 group">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3.5 h-3.5 rounded-full ${project.color}`}></div>
-                    <span className="text-sm text-slate-700">{project.name}</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteProject(project.id)}
-                    className="text-slate-300 hover:text-rose-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                    title="Eliminar proyecto"
+          </div>
+
+          {/* ------------------------------------------------------ */}
+          {/* COLUMNA 2: Agenda Principal, Tarjetas de Llamada y Botón CTA */}
+          {/* ------------------------------------------------------ */}
+          <div className={`lg:col-span-6 space-y-6 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
+            
+            {/* TARJETA DESTACADA: UI/UX Discussion (Exacta a la imagen) */}
+            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-6 shadow-2xl shadow-black/50">
+              
+              {/* Badge superior estilo 'DEISGNKNOT.COM' */}
+              <div className="inline-block bg-[#121417] border border-white/5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest text-neutral-400 uppercase mb-4">
+                MEET.GOOGLE.COM
+              </div>
+
+              {/* Título de la reunión con bullet dorado */}
+              <div className="flex items-start gap-2.5 mb-2">
+                <span className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></span>
+                <h3 className="text-base sm:text-lg font-bold text-white leading-snug">
+                  {events[0]?.title || 'UI/UX Discussion for Upcoming Project - Notel.'}
+                </h3>
+              </div>
+
+              <p className="text-xs text-neutral-400 mb-6 pl-4">
+                {events[0]?.time || '17th November - 11AM to 12PM'}
+              </p>
+
+              {/* Barra inferior de acciones redondeadas (Exacta a la cápsula de la imagen) */}
+              <div className="flex items-center justify-between pt-2">
+                
+                {/* Cápsula de 3 botones: [ X ] [ 🙂 ] [ ✓ ] */}
+                <div className="bg-[#121417] p-1.5 rounded-full border border-white/5 flex items-center gap-1.5">
+                  <button 
+                    onClick={() => events[0] && handleDeleteEvent(events[0].id)}
+                    title="Descartar"
+                    className="w-9 h-9 rounded-full bg-[#181a20] text-neutral-400 hover:text-white flex items-center justify-center transition"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
+                    <X className="w-4 h-4" />
+                  </button>
+
+                  <button 
+                    onClick={() => alert('Reunión confirmada')}
+                    className="w-9 h-9 rounded-full bg-[#181a20] text-neutral-400 hover:text-white flex items-center justify-center transition"
+                  >
+                    <Smile className="w-4 h-4" />
+                  </button>
+
+                  {/* Botón menta con checkmark */}
+                  <button 
+                    onClick={() => {
+                      if (events[0]?.link) {
+                        window.open(events[0].link.startsWith('http') ? events[0].link : `https://${events[0].link}`, '_blank');
+                      } else {
+                        alert('No hay enlace configurado para esta reunión.');
+                      }
+                    }}
+                    title="Unirse o Confirmar"
+                    className="w-9 h-9 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-md shadow-[#34d399]/20 transition hover:scale-105"
+                  >
+                    <Check className="w-4 h-4 stroke-[3]" />
                   </button>
                 </div>
-              ))}
+
+                <div className="h-6 w-px bg-white/10 mx-2"></div>
+
+                {/* Botón de participantes / Proyecto */}
+                <div className="w-9 h-9 rounded-full bg-[#121417] border border-white/5 text-neutral-400 flex items-center justify-center">
+                  <Users className="w-4 h-4" />
+                </div>
+              </div>
+
             </div>
+
+            {/* TARJETA 2: Llamada / Videollamada (Estilo 'Kenjo Assou Calling...') */}
+            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-2xl shadow-black/50">
+              
+              <div className="flex items-center gap-3.5 min-w-0">
+                {/* Cuadrado blanco con icono de teléfono / llamada */}
+                <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-[#0b0d11] shadow-md flex-shrink-0">
+                  <Phone className="w-5 h-5 stroke-[2.5]" />
+                </div>
+                
+                <div className="min-w-0">
+                  <h4 className="text-sm sm:text-base font-bold text-white truncate">
+                    {events[1]?.title || 'Kenjo Assou'}
+                  </h4>
+                  <p className="text-xs text-neutral-400 truncate">
+                    {events[1]?.time || 'Calling... 11:00 AM'}
+                  </p>
+                </div>
+              </div>
+
+              {/* Botones de acción rápido: [ X ] y [ ✓ ] */}
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <button
+                  onClick={() => events[1] && handleDeleteEvent(events[1].id)}
+                  className="w-9 h-9 rounded-full bg-[#121417] text-neutral-400 hover:text-white flex items-center justify-center border border-white/5 transition"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => openCreateEventModal()}
+                  className="w-9 h-9 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-md shadow-[#34d399]/20 transition hover:scale-105"
+                >
+                  <Check className="w-4 h-4 stroke-[3]" />
+                </button>
+              </div>
+
+            </div>
+
+            {/* LISTA ADICIONAL DE EVENTOS */}
+            {events.length > 2 && (
+              <div className="space-y-2">
+                {events.slice(2).map(ev => (
+                  <div key={ev.id} className="bg-[#181a20] border border-white/5 rounded-2xl p-4 flex items-center justify-between">
+                    <div>
+                      <h4 className="text-sm font-bold text-white">{ev.title}</h4>
+                      <p className="text-xs text-neutral-400">{ev.time}</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => openEditEventModal(ev)} className="p-1.5 text-neutral-400 hover:text-white">
+                        <Edit3 className="w-4 h-4" />
+                      </button>
+                      <button onClick={() => handleDeleteEvent(ev.id)} className="p-1.5 text-neutral-400 hover:text-rose-400">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* BOTÓN CTA PRINCIPAL: '+ Create New Event' (Exacto a la imagen) */}
+            <button
+              onClick={openCreateEventModal}
+              className="w-full bg-[#34d399] hover:bg-[#2ecc71] text-[#0b0d11] font-bold text-base py-4 px-6 rounded-2xl shadow-xl shadow-[#34d399]/20 transition-all active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Plus className="w-5 h-5 stroke-[3]" />
+              <span>+ Create New Event</span>
+            </button>
+
           </div>
 
         </div>
+
       </div>
 
+      {/* ======================================================== */}
       {/* MODAL: EDITAR TAREA */}
+      {/* ======================================================== */}
       {editingTask && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">Editar Tarea</h3>
-              <button onClick={() => setEditingTask(null)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-lg font-bold text-white">Editar Tarea</h3>
+              <button onClick={() => setEditingTask(null)} className="text-neutral-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleUpdateTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Título</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Título</label>
                 <input
                   type="text"
                   value={editingTask.title}
                   onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Proyecto</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Proyecto</label>
                 <select
                   value={editingTask.projectId}
                   onChange={(e) => setEditingTask({ ...editingTask, projectId: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
                 >
                   {projects.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -1079,15 +1077,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setEditingTask(null)}
-                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
                 >
-                  Guardar Cambios
+                  Guardar
                 </button>
               </div>
             </form>
@@ -1095,78 +1093,63 @@ export default function App() {
         </div>
       )}
 
+      {/* ======================================================== */}
       {/* MODAL: EVENTO */}
+      {/* ======================================================== */}
       {eventModal.open && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">
-                {eventModal.isEditing ? 'Editar Evento' : 'Nuevo Evento de Agenda'}
+              <h3 className="text-lg font-bold text-white">
+                {eventModal.isEditing ? 'Editar Evento' : 'Crear Nuevo Evento'}
               </h3>
-              <button 
-                onClick={() => setEventModal({ open: false, isEditing: false, data: null })}
-                className="text-slate-400 hover:text-slate-600"
-              >
+              <button onClick={() => setEventModal({ open: false, isEditing: false, data: null })} className="text-neutral-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleSaveEvent} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Título del Evento</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Título</label>
                 <input
                   type="text"
-                  placeholder="ej. Reunión de planeación"
+                  placeholder="ej. UI/UX Discussion for Upcoming Project"
                   value={eventForm.title}
                   onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
                   required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Hora</label>
-                  <input
-                    type="text"
-                    placeholder="10:00 AM"
-                    value={eventForm.time}
-                    onChange={(e) => setEventForm({ ...eventForm, time: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Tipo</label>
-                  <select
-                    value={eventForm.type}
-                    onChange={(e) => setEventForm({ ...eventForm, type: e.target.value })}
-                    className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  >
-                    <option value="meet">Google Meet</option>
-                    <option value="calendar">Calendario</option>
-                  </select>
-                </div>
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Horario</label>
+                <input
+                  type="text"
+                  placeholder="11:00 AM - 12:00 PM"
+                  value={eventForm.time}
+                  onChange={(e) => setEventForm({ ...eventForm, time: e.target.value })}
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
+                  required
+                />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Enlace de videollamada</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Enlace Google Meet</label>
                 <input
                   type="text"
                   placeholder="meet.google.com/xyz-abc"
                   value={eventForm.link}
                   onChange={(e) => setEventForm({ ...eventForm, link: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Proyecto asociado</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Proyecto</label>
                 <select
                   value={eventForm.projectId}
                   onChange={(e) => setEventForm({ ...eventForm, projectId: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
                 >
                   {projects.map(p => (
                     <option key={p.id} value={p.id}>{p.name}</option>
@@ -1178,15 +1161,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setEventModal({ open: false, isEditing: false, data: null })}
-                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
                 >
-                  {eventModal.isEditing ? 'Actualizar Evento' : 'Crear Evento'}
+                  Guardar Evento
                 </button>
               </div>
             </form>
@@ -1194,43 +1177,45 @@ export default function App() {
         </div>
       )}
 
+      {/* ======================================================== */}
       {/* MODAL: PROYECTO */}
+      {/* ======================================================== */}
       {projectModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
+          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-slate-800">Nuevo Proyecto</h3>
-              <button onClick={() => setProjectModal(false)} className="text-slate-400 hover:text-slate-600">
+              <h3 className="text-lg font-bold text-white">Nuevo Proyecto</h3>
+              <button onClick={() => setProjectModal(false)} className="text-neutral-400 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
 
             <form onSubmit={handleCreateProject} className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Nombre del Proyecto</label>
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Nombre</label>
                 <input
                   type="text"
-                  placeholder="ej. Marketing, Finanzas, Salud..."
+                  placeholder="ej. Marketing, Finanzas, Mobile..."
                   value={projectForm.name}
                   onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
-                  className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
                   required
                 />
               </div>
 
               <div>
-                <label className="block text-xs font-medium text-slate-600 mb-2">Color Distintivo</label>
-                <div className="flex gap-2 items-center flex-wrap">
+                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">Color</label>
+                <div className="flex gap-2.5 items-center flex-wrap">
                   {COLOR_OPTIONS.map(opt => (
                     <button
-                      key={opt.color}
+                      key={opt.hex}
                       type="button"
                       onClick={() => setProjectForm({ ...projectForm, color: opt.color, hex: opt.hex })}
-                      className={`w-8 h-8 rounded-full ${opt.color} flex items-center justify-center transition-transform ${
-                        projectForm.color === opt.color ? 'scale-110 ring-2 ring-slate-900 ring-offset-2' : 'hover:scale-105'
+                      className={`w-9 h-9 rounded-2xl ${opt.color} flex items-center justify-center transition-transform hover:scale-105 ${
+                        projectForm.hex === opt.hex ? 'ring-2 ring-white ring-offset-2 ring-offset-[#181a20]' : ''
                       }`}
                     >
-                      {projectForm.color === opt.color && <Check className="w-4 h-4 text-white" />}
+                      {projectForm.hex === opt.hex && <Check className="w-4 h-4 text-black stroke-[3]" />}
                     </button>
                   ))}
                 </div>
@@ -1240,15 +1225,15 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => setProjectModal(false)}
-                  className="px-4 py-2 text-sm text-slate-600 hover:bg-slate-100 rounded-xl transition"
+                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-2 text-sm bg-slate-900 text-white rounded-xl hover:bg-slate-800 transition font-medium"
+                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
                 >
-                  Guardar Proyecto
+                  Guardar
                 </button>
               </div>
             </form>
@@ -1256,29 +1241,33 @@ export default function App() {
         </div>
       )}
 
-      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-slate-200 z-40 px-6 py-2 pb-safe shadow-[0_-4px_20px_-10px_rgba(0,0,0,0.1)]">
-        <div className="flex items-center justify-between max-w-sm mx-auto">
+      {/* ======================================================== */}
+      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL (PWA DOCK OSCURO) */}
+      {/* ======================================================== */}
+      <div className="lg:hidden fixed bottom-3 left-4 right-4 bg-[#181a20]/95 backdrop-blur-md border border-white/10 z-40 px-6 py-2 rounded-full shadow-2xl shadow-black/80">
+        <div className="flex items-center justify-around max-w-sm mx-auto">
           <button 
             type="button"
             onClick={() => setActiveTab('tasks')}
-            className={`flex-1 flex flex-col items-center p-2 rounded-xl transition-all ${activeTab === 'tasks' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+            className={`p-2 rounded-xl transition ${activeTab === 'tasks' ? 'text-[#34d399]' : 'text-neutral-500'}`}
           >
-            <div className={`p-1.5 rounded-2xl mb-1 transition-all ${activeTab === 'tasks' ? 'bg-slate-100' : ''}`}>
-              <ListTodo className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-medium">Tareas</span>
+            <ListTodo className="w-6 h-6" />
           </button>
           
           <button 
             type="button"
-            onClick={() => setActiveTab('agenda')}
-            className={`flex-1 flex flex-col items-center p-2 rounded-xl transition-all ${activeTab === 'agenda' ? 'text-slate-900' : 'text-slate-400 hover:text-slate-600'}`}
+            onClick={openCreateEventModal}
+            className="w-11 h-11 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-lg shadow-[#34d399]/30 -mt-4 transition active:scale-95"
           >
-            <div className={`p-1.5 rounded-2xl mb-1 transition-all ${activeTab === 'agenda' ? 'bg-slate-100' : ''}`}>
-              <CalendarIcon className="w-6 h-6" />
-            </div>
-            <span className="text-[11px] font-medium">Agenda</span>
+            <Plus className="w-6 h-6 stroke-[3]" />
+          </button>
+
+          <button 
+            type="button"
+            onClick={() => setActiveTab('agenda')}
+            className={`p-2 rounded-xl transition ${activeTab === 'agenda' ? 'text-[#34d399]' : 'text-neutral-500'}`}
+          >
+            <CalendarIcon className="w-6 h-6" />
           </button>
         </div>
       </div>

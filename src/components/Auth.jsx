@@ -25,13 +25,12 @@ export default function Auth() {
   const [message, setMessage] = useState(null);
   const [error, setError] = useState(null);
 
-  // Autenticación directa con Correo y Contraseña (Login / Registro sin límite de correos)
   const handleEmailPasswordAuth = async (e) => {
     e.preventDefault();
     if (!email.trim() || !password.trim()) return;
 
     if (!isSupabaseConfigured) {
-      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
+      setError('Aún no has configurado tus credenciales en el archivo .env.');
       return;
     }
 
@@ -46,7 +45,6 @@ export default function Auth() {
       setMessage(null);
 
       if (isSignUp) {
-        // REGISTRO
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: email.trim(),
           password: password,
@@ -55,14 +53,11 @@ export default function Auth() {
         if (signUpError) throw signUpError;
 
         if (data?.session) {
-          setMessage('¡Cuenta creada y sesión iniciada con éxito!');
+          setMessage('¡Cuenta creada y sesión iniciada!');
         } else if (data?.user) {
-          setMessage(
-            '¡Registro exitoso! Si en tu consola de Supabase está activo "Confirm email", revisa tu correo. Para entrar de inmediato sin esperar correo, desactiva "Confirm email" en Supabase > Auth > Providers > Email.'
-          );
+          setMessage('¡Registro completado! Si Supabase pide verificación, revisa tu correo o desactiva "Confirm email" en el panel.');
         }
       } else {
-        // INICIO DE SESIÓN
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: email.trim(),
           password: password,
@@ -73,9 +68,9 @@ export default function Auth() {
     } catch (err) {
       const msg = err?.message || String(err);
       if (msg.toLowerCase().includes('failed to fetch')) {
-        setError('Error de conexión con Supabase. Revisa que tu URL en .env sea correcta.');
+        setError('Error de conexión con Supabase. Revisa tu archivo .env.');
       } else if (msg.includes('Invalid login credentials')) {
-        setError('Credenciales inválidas. Comprueba tu correo y contraseña o crea una cuenta nueva.');
+        setError('Credenciales inválidas. Comprueba tu correo y contraseña.');
       } else if (msg.includes('User already registered')) {
         setError('Este correo ya está registrado. Selecciona "Iniciar Sesión".');
       } else {
@@ -86,15 +81,9 @@ export default function Auth() {
     }
   };
 
-  // Magic Link alternativo
   const handleMagicLink = async (e) => {
     e.preventDefault();
     if (!email.trim()) return;
-
-    if (!isSupabaseConfigured) {
-      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
-      return;
-    }
 
     try {
       setLoading(true);
@@ -109,27 +98,15 @@ export default function Auth() {
       });
 
       if (error) throw error;
-
-      setMessage('¡Enlace mágico enviado! Revisa tu bandeja de entrada o spam.');
+      setMessage('¡Enlace mágico enviado a tu correo!');
     } catch (err) {
-      const msg = err?.message || String(err);
-      if (msg.includes('rate limit') || msg.includes('exceeded')) {
-        setError('Límite de envíos de correo excedido en Supabase. Utiliza correo y contraseña.');
-      } else {
-        setError(msg || 'Error al enviar el enlace mágico.');
-      }
+      setError(err?.message || 'Error al enviar enlace mágico.');
     } finally {
       setLoading(false);
     }
   };
 
-  // Google OAuth
   const handleGoogleLogin = async () => {
-    if (!isSupabaseConfigured) {
-      setError('Aún no has configurado tus credenciales reales en el archivo .env.');
-      return;
-    }
-
     try {
       setLoading(true);
       setError(null);
@@ -149,25 +126,28 @@ export default function Auth() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 sm:p-6 text-slate-100">
-      <div className="w-full max-w-md bg-slate-800/90 backdrop-blur-md border border-slate-700/60 rounded-3xl p-6 sm:p-8 shadow-2xl">
+    <div className="min-h-screen bg-[#0b0d11] flex items-center justify-center p-4 sm:p-6 text-slate-100 font-sans">
+      <div className="w-full max-w-md bg-[#181a20] border border-white/5 rounded-[32px] p-6 sm:p-8 shadow-2xl shadow-black/60 relative overflow-hidden">
         
-        {/* Cabecera */}
+        {/* Glow de fondo */}
+        <div className="absolute top-0 right-0 w-48 h-48 bg-[#34d399]/5 rounded-full blur-3xl pointer-events-none"></div>
+
+        {/* Header */}
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-blue-600 to-cyan-500 shadow-lg shadow-blue-500/30 mb-3">
-            <Sparkles className="w-7 h-7 text-white" />
+          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-[#34d399] shadow-lg shadow-[#34d399]/20 mb-3 text-[#0b0d11]">
+            <Sparkles className="w-7 h-7" />
           </div>
           <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Mi Día</h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">Planificador diario personal y productivo</p>
+          <p className="text-xs sm:text-sm text-neutral-400 mt-1">Organización y productividad oscura</p>
         </div>
 
         {/* Pestañas: Iniciar Sesión / Registrarse */}
-        <div className="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-700/60 mb-6">
+        <div className="flex bg-[#111317] p-1.5 rounded-2xl border border-white/5 mb-6">
           <button
             type="button"
             onClick={() => { setIsSignUp(false); setError(null); setMessage(null); }}
-            className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
-              !isSignUp ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              !isSignUp ? 'bg-[#22252c] text-white shadow-sm' : 'text-neutral-400 hover:text-white'
             }`}
           >
             <LogIn className="w-4 h-4" />
@@ -176,8 +156,8 @@ export default function Auth() {
           <button
             type="button"
             onClick={() => { setIsSignUp(true); setError(null); setMessage(null); }}
-            className={`flex-1 py-2 rounded-xl text-xs sm:text-sm font-medium transition-all flex items-center justify-center gap-1.5 ${
-              isSignUp ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
+            className={`flex-1 py-2.5 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              isSignUp ? 'bg-[#34d399] text-[#0b0d11] shadow-md shadow-[#34d399]/20' : 'text-neutral-400 hover:text-white'
             }`}
           >
             <UserPlus className="w-4 h-4" />
@@ -185,30 +165,30 @@ export default function Auth() {
           </button>
         </div>
 
-        {/* Alertas */}
+        {/* Mensajes */}
         {message && (
-          <div className="mb-5 p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs sm:text-sm flex gap-3 items-start">
-            <CheckCircle className="w-5 h-5 flex-shrink-0 text-emerald-400 mt-0.5" />
+          <div className="mb-5 p-3.5 rounded-2xl bg-[#34d399]/10 border border-[#34d399]/30 text-[#34d399] text-xs sm:text-sm flex gap-3 items-start">
+            <CheckCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <p className="leading-relaxed">{message}</p>
           </div>
         )}
 
         {error && (
           <div className="mb-5 p-3.5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs sm:text-sm flex gap-3 items-start">
-            <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-400 mt-0.5" />
+            <AlertCircle className="w-5 h-5 flex-shrink-0 mt-0.5" />
             <p className="leading-relaxed">{error}</p>
           </div>
         )}
 
-        {/* Formulario Principal (Correo + Contraseña) */}
+        {/* Formulario */}
         {!showMagicLink ? (
           <form onSubmit={handleEmailPasswordAuth} className="space-y-4">
             <div>
-              <label htmlFor="auth-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+              <label htmlFor="auth-email" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
                 Correo electrónico
               </label>
               <div className="relative">
-                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-5 h-5 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   id="auth-email"
                   type="email"
@@ -216,17 +196,17 @@ export default function Auth() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ejemplo@correo.com"
                   required
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#34d399]/50 transition"
                 />
               </div>
             </div>
 
             <div>
-              <label htmlFor="auth-password" className="block text-xs font-medium text-slate-300 mb-1.5">
+              <label htmlFor="auth-password" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
                 Contraseña
               </label>
               <div className="relative">
-                <Lock className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Lock className="w-5 h-5 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   id="auth-password"
                   type={showPassword ? 'text' : 'password'}
@@ -234,12 +214,12 @@ export default function Auth() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Mínimo 6 caracteres"
                   required
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-11 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl pl-11 pr-11 py-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#34d399]/50 transition"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200"
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-white"
                 >
                   {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
                 </button>
@@ -249,16 +229,12 @@ export default function Auth() {
             <button
               type="submit"
               disabled={loading || !email.trim() || !password.trim()}
-              className={`w-full flex items-center justify-center gap-2 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-lg active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed text-sm ${
-                isSignUp 
-                  ? 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30' 
-                  : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
-              }`}
+              className="w-full flex items-center justify-center gap-2 bg-[#34d399] hover:bg-[#2ecc71] text-[#0b0d11] font-bold py-3.5 px-4 rounded-2xl transition-all shadow-lg shadow-[#34d399]/20 active:scale-[0.99] disabled:opacity-50 text-sm mt-2"
             >
               {loading ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  {isSignUp ? 'Creando cuenta...' : 'Entrando...'}
+                  <Loader2 className="w-4 h-4 animate-spin text-[#0b0d11]" />
+                  <span>Procesando...</span>
                 </>
               ) : (
                 <>
@@ -269,14 +245,13 @@ export default function Auth() {
             </button>
           </form>
         ) : (
-          /* Formulario Alternativo Magic Link */
           <form onSubmit={handleMagicLink} className="space-y-4">
             <div>
-              <label htmlFor="magic-email" className="block text-xs font-medium text-slate-300 mb-1.5">
+              <label htmlFor="magic-email" className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
                 Enviar enlace a tu correo
               </label>
               <div className="relative">
-                <Mail className="w-5 h-5 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <Mail className="w-5 h-5 text-neutral-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   id="magic-email"
                   type="email"
@@ -284,7 +259,7 @@ export default function Auth() {
                   onChange={(e) => setEmail(e.target.value)}
                   placeholder="ejemplo@correo.com"
                   required
-                  className="w-full bg-slate-900/80 border border-slate-700 rounded-xl pl-11 pr-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
+                  className="w-full bg-[#111317] border border-white/5 rounded-2xl pl-11 pr-4 py-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-[#34d399]/50 transition"
                 />
               </div>
             </div>
@@ -292,28 +267,27 @@ export default function Auth() {
             <button
               type="submit"
               disabled={loading || !email.trim()}
-              className="w-full flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-500 text-white font-medium py-3 px-4 rounded-xl transition-all shadow-lg shadow-blue-600/30 text-sm"
+              className="w-full flex items-center justify-center gap-2 bg-[#34d399] hover:bg-[#2ecc71] text-[#0b0d11] font-bold py-3.5 px-4 rounded-2xl transition-all shadow-lg shadow-[#34d399]/20 text-sm"
             >
-              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <span>Enviar Magic Link</span>}
+              {loading ? <Loader2 className="w-4 h-4 animate-spin text-[#0b0d11]" /> : <span>Enviar Magic Link</span>}
             </button>
           </form>
         )}
 
         {/* Separador */}
         <div className="relative flex items-center justify-center my-6">
-          <div className="border-t border-slate-700 w-full"></div>
-          <span className="bg-slate-800 px-3 text-[11px] uppercase tracking-wider text-slate-400 font-semibold absolute">
-            Opciones adicionales
+          <div className="border-t border-white/5 w-full"></div>
+          <span className="bg-[#181a20] px-3 text-[10px] uppercase tracking-wider text-neutral-500 font-semibold absolute">
+            Otras opciones
           </span>
         </div>
 
-        {/* Google OAuth & Alternativas */}
         <div className="space-y-3">
           <button
             type="button"
             onClick={handleGoogleLogin}
             disabled={loading}
-            className="w-full flex items-center justify-center gap-3 bg-white hover:bg-slate-100 text-slate-800 font-medium py-2.5 px-4 rounded-xl transition-all text-xs sm:text-sm shadow-md disabled:opacity-50"
+            className="w-full flex items-center justify-center gap-3 bg-[#111317] hover:bg-[#20232a] text-white border border-white/5 font-medium py-3 px-4 rounded-2xl transition-all text-xs sm:text-sm"
           >
             <svg className="w-4 h-4" viewBox="0 0 24 24">
               <path
@@ -339,9 +313,9 @@ export default function Auth() {
           <button
             type="button"
             onClick={() => { setShowMagicLink(!showMagicLink); setError(null); setMessage(null); }}
-            className="w-full text-center text-xs text-slate-400 hover:text-slate-200 py-1 transition-colors"
+            className="w-full text-center text-xs text-neutral-400 hover:text-white py-1 transition-colors"
           >
-            {showMagicLink ? '← Volver a inicio con contraseña' : '¿Prefieres enlace mágico por correo? Haz clic aquí'}
+            {showMagicLink ? '← Iniciar con correo y contraseña' : '¿Prefieres Magic Link por correo?'}
           </button>
         </div>
 
