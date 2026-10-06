@@ -1,36 +1,43 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   CheckCircle2, 
   Circle, 
   Plus, 
   Trash2, 
-  Edit3,
+  Edit3, 
   Calendar as CalendarIcon, 
   Clock, 
   Video, 
   Folder, 
-  ListTodo,
-  LogOut,
-  Loader2,
-  AlertCircle,
-  X,
-  Check,
-  Tag,
-  Filter,
-  Wifi,
-  WifiOff,
-  CloudUpload,
-  ChevronDown,
-  Phone,
-  Smile,
-  Users,
-  Pipette,
-  MessageSquare
+  ListTodo, 
+  LogOut, 
+  Loader2, 
+  AlertCircle, 
+  X, 
+  Check, 
+  Tag, 
+  Filter, 
+  Wifi, 
+  WifiOff, 
+  CloudUpload, 
+  ChevronDown, 
+  ChevronLeft,
+  ChevronRight,
+  Phone, 
+  Smile, 
+  Users, 
+  Pipette, 
+  MessageSquare 
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Auth from './components/Auth';
 
-// Paleta de colores estilo Neumórfico Oscuro (como en la imagen de referencia)
+const MONTH_NAMES = [
+  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+];
+
+// Paleta de colores estilo Neumórfico Oscuro
 const COLOR_OPTIONS = [
   { color: 'bg-[#fef3c7]', hex: '#fef3c7', text: 'text-amber-950', label: 'Crema' },
   { color: 'bg-[#e0e7ff]', hex: '#e0e7ff', text: 'text-indigo-950', label: 'Lavanda' },
@@ -41,10 +48,36 @@ const COLOR_OPTIONS = [
 ];
 
 const DEFAULT_PROJECTS = [
-  { id: 'p1', name: 'UI/UX Design', color: 'bg-[#93c5fd]', hex: '#93c5fd' },
+  { id: 'p1', name: 'Diseño UI/UX', color: 'bg-[#93c5fd]', hex: '#93c5fd' },
   { id: 'p2', name: 'Personal', color: 'bg-[#34d399]', hex: '#34d399' },
   { id: 'p3', name: 'Proyectos', color: 'bg-[#f472b6]', hex: '#f472b6' }
 ];
+
+// Eventos iniciales correspondientes al mes actual en curso
+const getInitialEvents = () => {
+  const now = new Date();
+  const currentMonthName = MONTH_NAMES[now.getMonth()];
+  const currentDay = now.getDate();
+
+  return [
+    {
+      id: 'e1',
+      title: 'Discusión de UI/UX para el nuevo proyecto',
+      time: `${currentDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`,
+      type: 'meet',
+      link: 'meet.google.com/notel-project',
+      projectId: 'p1'
+    },
+    {
+      id: 'e2',
+      title: 'Kenjo Assou',
+      time: 'Llamando... 11:00 AM',
+      type: 'meet',
+      link: '',
+      projectId: 'p1'
+    }
+  ];
+};
 
 const STORAGE_KEYS = {
   TASKS: 'midia_offline_tasks',
@@ -61,6 +94,11 @@ export default function App() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncing, setSyncing] = useState(false);
   const [pendingSyncCount, setPendingSyncCount] = useState(0);
+
+  // Fecha y Calendario actual (detecta today automáticamente)
+  const today = useMemo(() => new Date(), []);
+  const [currentDate, setCurrentDate] = useState(() => new Date());
+  const [selectedCalendarDay, setSelectedCalendarDay] = useState(() => new Date().getDate());
 
   // Datos
   const [tasks, setTasks] = useState(() => {
@@ -80,14 +118,13 @@ export default function App() {
   const [events, setEvents] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
+      return saved ? JSON.parse(saved) : getInitialEvents();
+    } catch { return getInitialEvents(); }
   });
 
   const [dataLoading, setDataLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'agenda'
   const [selectedFilterProjectId, setSelectedFilterProjectId] = useState('all');
-  const [selectedCalendarDay, setSelectedCalendarDay] = useState(4);
 
   // Formulario nueva tarea
   const [newTaskTitle, setNewTaskTitle] = useState('');
@@ -202,7 +239,7 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Carga de datos
+  // Carga de datos de Supabase
   const loadUserData = useCallback(async (userId) => {
     if (!navigator.onLine) return;
 
@@ -253,19 +290,25 @@ export default function App() {
         .select('*')
         .order('created_at', { ascending: true });
 
-      const mappedEvents = (userEvents || []).map(e => ({
-        id: e.id,
-        title: e.title,
-        time: e.time,
-        type: e.type,
-        link: e.link,
-        projectId: e.project_id
-      }));
-      setEvents(mappedEvents);
-      saveOfflineCache(null, null, mappedEvents);
+      if (userEvents && userEvents.length > 0) {
+        const mappedEvents = userEvents.map(e => ({
+          id: e.id,
+          title: e.title,
+          time: e.time,
+          type: e.type,
+          link: e.link,
+          projectId: e.project_id
+        }));
+        setEvents(mappedEvents);
+        saveOfflineCache(null, null, mappedEvents);
+      } else {
+        const initialMock = getInitialEvents();
+        setEvents(initialMock);
+        saveOfflineCache(null, null, initialMock);
+      }
 
     } catch (err) {
-      console.warn('Error sincronizando Supabase:', err);
+      console.warn('Error sincronizando con Supabase:', err);
     } finally {
       setDataLoading(false);
     }
@@ -382,9 +425,10 @@ export default function App() {
 
   // CRUD EVENTOS
   const openCreateEventModal = () => {
+    const currentMonthName = MONTH_NAMES[currentDate.getMonth()];
     setEventForm({
       title: '',
-      time: '11:00 AM - 12:00 PM',
+      time: `${selectedCalendarDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`,
       type: 'meet',
       link: '',
       projectId: projects[0]?.id || ''
@@ -540,6 +584,25 @@ export default function App() {
     };
   };
 
+  // Navegación de mes del calendario
+  const navigateMonth = (direction) => {
+    setCurrentDate(prev => {
+      const nextDate = new Date(prev.getFullYear(), prev.getMonth() + direction, 1);
+      // Ajustar selectedCalendarDay si el nuevo mes tiene menos días
+      const daysInNextMonth = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
+      setSelectedCalendarDay(curr => Math.min(curr, daysInNextMonth));
+      return nextDate;
+    });
+  };
+
+  // Lógica de alineación real del calendario (días del mes con sus días de semana D, L, M, M, J, V, S)
+  const currentYear = currentDate.getFullYear();
+  const currentMonth = currentDate.getMonth();
+  const currentMonthName = MONTH_NAMES[currentMonth];
+  const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Domingo, 1 = Lunes, etc.
+  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+
+  // Filtrado de tareas
   const filteredTasks = selectedFilterProjectId === 'all' 
     ? tasks 
     : tasks.filter(t => t.projectId === selectedFilterProjectId);
@@ -564,16 +627,14 @@ export default function App() {
       <div className="max-w-6xl w-full flex flex-col md:flex-row gap-6 items-start">
         
         {/* ======================================================== */}
-        {/* SIDEBAR FLOTANTE VERTICAL (Estilo cápsula de la izquierda) */}
+        {/* SIDEBAR FLOTANTE VERTICAL */}
         {/* ======================================================== */}
         <aside className="hidden lg:flex flex-col items-center justify-between bg-[#181a20] border border-white/5 rounded-[36px] py-6 px-3 shadow-2xl shadow-black/80 w-16 flex-shrink-0 sticky top-8">
           
-          {/* Logo / Emojisuperior */}
           <div className="w-10 h-10 rounded-2xl bg-[#22252c] border border-white/5 flex items-center justify-center text-xl shadow-inner mb-6">
             👍
           </div>
 
-          {/* Navegación vertical */}
           <div className="flex flex-col items-center gap-6">
             <button
               onClick={() => openCreateEventModal()}
@@ -583,7 +644,6 @@ export default function App() {
               <Plus className="w-5 h-5" />
             </button>
 
-            {/* Pestaña Tareas con punto indicador activo menta */}
             <button
               onClick={() => setActiveTab('tasks')}
               title="Tareas"
@@ -595,7 +655,6 @@ export default function App() {
               )}
             </button>
 
-            {/* Pestaña Agenda */}
             <button
               onClick={() => setActiveTab('agenda')}
               title="Agenda y Calendario"
@@ -616,15 +675,14 @@ export default function App() {
             </button>
 
             <button
-              onClick={() => alert(`Usuario: ${session?.user?.email}`)}
-              title="Mensajes / Estado"
+              onClick={() => alert(`Usuario conectado: ${session?.user?.email}`)}
+              title="Información de cuenta"
               className="text-neutral-400 hover:text-white transition-colors p-2"
             >
               <MessageSquare className="w-5 h-5" />
             </button>
           </div>
 
-          {/* Botón Salir en la base */}
           <button
             onClick={handleLogout}
             title="Cerrar sesión"
@@ -635,7 +693,7 @@ export default function App() {
         </aside>
 
         {/* ======================================================== */}
-        {/* GRID CENTRAL: 2 COLUMNAS (Estilo exacto de las tarjetas) */}
+        {/* GRID CENTRAL: 2 COLUMNAS */}
         {/* ======================================================== */}
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
           
@@ -649,7 +707,7 @@ export default function App() {
               <div>
                 <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Mi Día</h1>
                 <p className="text-xs text-neutral-400">
-                  {tasks.filter(t => !t.completed).length} pendientes para hoy
+                  {tasks.filter(t => !t.completed).length} tareas pendientes para hoy
                 </p>
               </div>
 
@@ -678,54 +736,89 @@ export default function App() {
               </div>
             </div>
 
-            {/* TARJETA 1: Calendario Neumórfico (Exacto a la imagen) */}
+            {/* TARJETA 1: Calendario Real con alineación exacta D, L, M, M, J, V, S */}
             <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
               <div className="flex items-center justify-between mb-4">
-                <button className="flex items-center gap-1.5 font-bold text-white text-sm sm:text-base hover:text-neutral-200">
-                  <span>Octubre, 2026</span>
-                  <ChevronDown className="w-4 h-4 text-neutral-400" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-white text-sm sm:text-base capitalize">
+                    {currentMonthName}, {currentYear}
+                  </span>
+                  <div className="flex items-center gap-1">
+                    <button 
+                      onClick={() => navigateMonth(-1)}
+                      title="Mes anterior"
+                      className="p-1 text-neutral-400 hover:text-white rounded-lg transition"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                    <button 
+                      onClick={() => navigateMonth(1)}
+                      title="Mes siguiente"
+                      className="p-1 text-neutral-400 hover:text-white rounded-lg transition"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+
                 <button 
                   onClick={() => openCreateEventModal()}
+                  title="Nuevo evento"
                   className="text-amber-400 hover:text-amber-300 font-bold text-lg p-1 transition-transform hover:scale-110"
                 >
                   +
                 </button>
               </div>
 
-              {/* Días de la semana con 'S' en rojo coral */}
+              {/* Iniciales en Español: D, L, M, M, J, V, S con fines de semana en rojo coral */}
               <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold mb-3">
-                <span className="text-rose-400">S</span>
+                <span className="text-rose-400">D</span>
+                <span className="text-neutral-400">L</span>
                 <span className="text-neutral-400">M</span>
-                <span className="text-neutral-400">T</span>
-                <span className="text-neutral-400">W</span>
-                <span className="text-neutral-400">T</span>
-                <span className="text-neutral-400">F</span>
+                <span className="text-neutral-400">M</span>
+                <span className="text-neutral-400">J</span>
+                <span className="text-neutral-400">V</span>
                 <span className="text-rose-400">S</span>
               </div>
 
-              {/* Días numerados: el seleccionado con círculo menta */}
+              {/* Días alineados con sus días de semana reales */}
               <div className="grid grid-cols-7 gap-1 text-center text-xs">
-                {[1, 2, 3, 4, 5, 6, 7].map(day => (
-                  <button
-                    key={day}
-                    onClick={() => setSelectedCalendarDay(day)}
-                    className={`w-9 h-9 mx-auto rounded-full flex items-center justify-center font-bold transition-all ${
-                      selectedCalendarDay === day
-                        ? 'bg-[#34d399] text-[#0b0d11] shadow-lg shadow-[#34d399]/30 scale-105'
-                        : 'bg-[#121417] text-neutral-300 hover:bg-[#20232a]'
-                    }`}
-                  >
-                    {day}
-                  </button>
+                {/* Celdas vacías para alinear el primer día del mes */}
+                {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
+                  <div key={`empty-${idx}`} className="w-9 h-9" />
                 ))}
+
+                {/* Días reales del mes */}
+                {Array.from({ length: daysInMonth }, (_, idx) => idx + 1).map(day => {
+                  const isSelected = selectedCalendarDay === day;
+                  const isToday = 
+                    today.getDate() === day && 
+                    today.getMonth() === currentMonth && 
+                    today.getFullYear() === currentYear;
+
+                  return (
+                    <button
+                      key={day}
+                      onClick={() => setSelectedCalendarDay(day)}
+                      className={`w-9 h-9 mx-auto rounded-full flex items-center justify-center font-bold transition-all ${
+                        isSelected
+                          ? 'bg-[#34d399] text-[#0b0d11] shadow-lg shadow-[#34d399]/30 scale-105'
+                          : isToday
+                          ? 'bg-[#121417] text-[#34d399] border border-[#34d399]/50 hover:bg-[#20232a]'
+                          : 'bg-[#121417] text-neutral-300 hover:bg-[#20232a]'
+                      }`}
+                    >
+                      {day}
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
-            {/* TARJETA 2: Selector de Color / Proyectos ("CHOOSE A COLOR :") */}
+            {/* TARJETA 2: Selector de Color ("ELIGE UN COLOR :") */}
             <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
               <h3 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-3">
-                CHOOSE A COLOR :
+                ELIGE UN COLOR :
               </h3>
               
               <div className="flex items-center gap-3">
@@ -746,7 +839,6 @@ export default function App() {
                 {/* Divisor vertical */}
                 <div className="h-6 w-px bg-white/10 mx-1"></div>
 
-                {/* Botón selector personalizado / Nuevo proyecto */}
                 <button
                   onClick={() => setProjectModal(true)}
                   title="Crear nuevo proyecto con color"
@@ -757,17 +849,17 @@ export default function App() {
               </div>
             </div>
 
-            {/* TARJETA 3: Evento rápido resaltado */}
+            {/* TARJETA 3: Evento rápido con formato en español (ej. "6 de Octubre") */}
             <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-4 flex items-center gap-4 shadow-2xl shadow-black/50">
               <div className="w-12 h-12 rounded-2xl bg-[#34d399] flex items-center justify-center text-[#0b0d11] shadow-lg shadow-[#34d399]/20 flex-shrink-0">
                 <CalendarIcon className="w-6 h-6 stroke-[2.5]" />
               </div>
               <div className="flex-1 min-w-0">
                 <span className="text-xs text-neutral-400 font-medium block">
-                  {selectedCalendarDay}th Octubre
+                  {selectedCalendarDay} de {currentMonthName}
                 </span>
                 <span className="text-sm font-bold text-white tracking-wide">
-                  11:00AM - 12:00PM
+                  11:00 AM - 12:00 PM
                 </span>
               </div>
             </div>
@@ -830,9 +922,12 @@ export default function App() {
                 </div>
               </div>
 
+              {/* LÓGICA CONDICIONAL DE ESTADO VACÍO */}
               {filteredTasks.length === 0 ? (
                 <div className="bg-[#181a20] border border-white/5 rounded-2xl p-6 text-center text-neutral-500 text-xs">
-                  No hay tareas pendientes en este proyecto.
+                  {selectedFilterProjectId === 'all'
+                    ? 'No hay tareas pendientes para hoy'
+                    : 'No hay tareas pendientes en este proyecto'}
                 </div>
               ) : (
                 filteredTasks.map(task => {
@@ -864,7 +959,6 @@ export default function App() {
                         </div>
                       </div>
 
-                      {/* Acciones de la tarea */}
                       <div className="flex items-center gap-1 bg-[#121417] p-1 rounded-xl border border-white/5">
                         <button
                           onClick={() => setEditingTask(task)}
@@ -894,30 +988,25 @@ export default function App() {
           {/* ------------------------------------------------------ */}
           <div className={`lg:col-span-6 space-y-6 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
             
-            {/* TARJETA DESTACADA: UI/UX Discussion (Exacta a la imagen) */}
+            {/* TARJETA DESTACADA: Evento del mes en curso */}
             <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-6 shadow-2xl shadow-black/50">
               
-              {/* Badge superior estilo 'DEISGNKNOT.COM' */}
               <div className="inline-block bg-[#121417] border border-white/5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest text-neutral-400 uppercase mb-4">
                 MEET.GOOGLE.COM
               </div>
 
-              {/* Título de la reunión con bullet dorado */}
               <div className="flex items-start gap-2.5 mb-2">
                 <span className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></span>
                 <h3 className="text-base sm:text-lg font-bold text-white leading-snug">
-                  {events[0]?.title || 'UI/UX Discussion for Upcoming Project - Notel.'}
+                  {events[0]?.title || 'Discusión de UI/UX para el nuevo proyecto'}
                 </h3>
               </div>
 
               <p className="text-xs text-neutral-400 mb-6 pl-4">
-                {events[0]?.time || '17th November - 11AM to 12PM'}
+                {events[0]?.time || `${selectedCalendarDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`}
               </p>
 
-              {/* Barra inferior de acciones redondeadas (Exacta a la cápsula de la imagen) */}
               <div className="flex items-center justify-between pt-2">
-                
-                {/* Cápsula de 3 botones: [ X ] [ 🙂 ] [ ✓ ] */}
                 <div className="bg-[#121417] p-1.5 rounded-full border border-white/5 flex items-center gap-1.5">
                   <button 
                     onClick={() => events[0] && handleDeleteEvent(events[0].id)}
@@ -934,7 +1023,6 @@ export default function App() {
                     <Smile className="w-4 h-4" />
                   </button>
 
-                  {/* Botón menta con checkmark */}
                   <button 
                     onClick={() => {
                       if (events[0]?.link) {
@@ -952,7 +1040,6 @@ export default function App() {
 
                 <div className="h-6 w-px bg-white/10 mx-2"></div>
 
-                {/* Botón de participantes / Proyecto */}
                 <div className="w-9 h-9 rounded-full bg-[#121417] border border-white/5 text-neutral-400 flex items-center justify-center">
                   <Users className="w-4 h-4" />
                 </div>
@@ -960,11 +1047,10 @@ export default function App() {
 
             </div>
 
-            {/* TARJETA 2: Llamada / Videollamada (Estilo 'Kenjo Assou Calling...') */}
+            {/* TARJETA 2: Llamada / Videollamada ("Llamando...") */}
             <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-2xl shadow-black/50">
               
               <div className="flex items-center gap-3.5 min-w-0">
-                {/* Cuadrado blanco con icono de teléfono / llamada */}
                 <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-[#0b0d11] shadow-md flex-shrink-0">
                   <Phone className="w-5 h-5 stroke-[2.5]" />
                 </div>
@@ -974,12 +1060,11 @@ export default function App() {
                     {events[1]?.title || 'Kenjo Assou'}
                   </h4>
                   <p className="text-xs text-neutral-400 truncate">
-                    {events[1]?.time || 'Calling... 11:00 AM'}
+                    {events[1]?.time || 'Llamando... 11:00 AM'}
                   </p>
                 </div>
               </div>
 
-              {/* Botones de acción rápido: [ X ] y [ ✓ ] */}
               <div className="flex items-center gap-2 flex-shrink-0">
                 <button
                   onClick={() => events[1] && handleDeleteEvent(events[1].id)}
@@ -1020,13 +1105,13 @@ export default function App() {
               </div>
             )}
 
-            {/* BOTÓN CTA PRINCIPAL: '+ Create New Event' (Exacto a la imagen) */}
+            {/* BOTÓN CTA PRINCIPAL: '+ Crear Nuevo Evento' */}
             <button
               onClick={openCreateEventModal}
               className="w-full bg-[#34d399] hover:bg-[#2ecc71] text-[#0b0d11] font-bold text-base py-4 px-6 rounded-2xl shadow-xl shadow-[#34d399]/20 transition-all active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
             >
               <Plus className="w-5 h-5 stroke-[3]" />
-              <span>+ Create New Event</span>
+              <span>+ Crear Nuevo Evento</span>
             </button>
 
           </div>
@@ -1113,7 +1198,7 @@ export default function App() {
                 <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Título</label>
                 <input
                   type="text"
-                  placeholder="ej. UI/UX Discussion for Upcoming Project"
+                  placeholder="ej. Discusión de UI/UX para el proyecto"
                   value={eventForm.title}
                   onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
                   className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
@@ -1242,7 +1327,7 @@ export default function App() {
       )}
 
       {/* ======================================================== */}
-      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL (PWA DOCK OSCURO) */}
+      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL */}
       {/* ======================================================== */}
       <div className="lg:hidden fixed bottom-3 left-4 right-4 bg-[#181a20]/95 backdrop-blur-md border border-white/10 z-40 px-6 py-2 rounded-full shadow-2xl shadow-black/80">
         <div className="flex items-center justify-around max-w-sm mx-auto">
