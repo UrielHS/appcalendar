@@ -2,7 +2,19 @@
   "name": "sistema-calendar-pwa",
   "private": true,
   "version": "1.0.0",
+  "description": "Planificador diario moderno y Progressive Web App (PWA) offline con diseño Master-Detail, soporte para Supabase y optimización para dispositivos plegables y móviles.",
   "type": "module",
+  "keywords": [
+    "react",
+    "vite",
+    "pwa",
+    "supabase",
+    "calendar",
+    "daily-planner",
+    "tailwind-css",
+    "master-detail",
+    "offline-first"
+  ],
   "scripts": {
     "dev": "vite",
     "build": "vite build",
