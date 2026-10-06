@@ -1,89 +1,69 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
-  CheckCircle2, 
-  Circle, 
-  Plus, 
-  Trash2, 
-  Edit3, 
-  Calendar as CalendarIcon, 
-  Clock, 
-  Video, 
-  Folder, 
-  ListTodo, 
-  LogOut, 
-  Loader2, 
-  AlertCircle, 
-  X, 
-  Check, 
-  Tag, 
-  Filter, 
-  Wifi, 
-  WifiOff, 
-  CloudUpload, 
-  ChevronDown, 
-  ChevronLeft,
+  ArrowUpDown,
+  SlidersHorizontal,
+  ChevronDown,
+  ChevronUp,
   ChevronRight,
-  Phone, 
-  Smile, 
-  Users, 
-  Pipette, 
-  MessageSquare 
+  Clock,
+  Flag,
+  MessageSquare,
+  Calendar as CalendarIcon,
+  AlignLeft,
+  Home,
+  CheckSquare,
+  Search,
+  Plus,
+  X,
+  Check,
+  Loader2,
+  Wifi,
+  WifiOff,
+  LogOut,
+  Edit3,
+  Trash2,
+  ArrowLeft,
+  Sparkles
 } from 'lucide-react';
 import { supabase } from './supabaseClient';
 import Auth from './components/Auth';
 
-const MONTH_NAMES = [
-  'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
-  'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+const DEFAULT_TASKS = [
+  {
+    id: 't-default-1',
+    title: 'Client meeting with Burger King',
+    completed: false,
+    priority: 'High',
+    start_time: '8:00 PM',
+    end_time: '8:30 PM',
+    comments_count: 2,
+    description: 'Catch up with the Burger King team to understand their upcoming priorities, share progress on current campaigns, and brainstorm potential opportunities for collaboration.'
+  },
+  {
+    id: 't-default-2',
+    title: 'Design project',
+    completed: false,
+    priority: 'Medium',
+    start_time: '6:00 PM',
+    end_time: '7:00 PM',
+    comments_count: 0,
+    description: 'Review UI/UX layouts, refine interactive state transitions, and align design system components for tablet & mobile foldable devices.'
+  },
+  {
+    id: 't-default-3',
+    title: 'Buy a macbook',
+    completed: true,
+    priority: 'Low',
+    start_time: '11:00 AM',
+    end_time: '11:30 AM',
+    comments_count: 0,
+    description: 'Pick up the new workstation laptop and configure development dependencies.'
+  }
 ];
-
-// Paleta de colores estilo Neumórfico Oscuro
-const COLOR_OPTIONS = [
-  { color: 'bg-[#fef3c7]', hex: '#fef3c7', text: 'text-amber-950', label: 'Crema' },
-  { color: 'bg-[#e0e7ff]', hex: '#e0e7ff', text: 'text-indigo-950', label: 'Lavanda' },
-  { color: 'bg-[#93c5fd]', hex: '#93c5fd', text: 'text-blue-950', label: 'Celeste' },
-  { color: 'bg-[#f472b6]', hex: '#f472b6', text: 'text-pink-950', label: 'Rosa' },
-  { color: 'bg-[#34d399]', hex: '#34d399', text: 'text-emerald-950', label: 'Menta' },
-  { color: 'bg-[#fbbf24]', hex: '#fbbf24', text: 'text-amber-950', label: 'Dorado' }
-];
-
-const DEFAULT_PROJECTS = [
-  { id: 'p1', name: 'Diseño UI/UX', color: 'bg-[#93c5fd]', hex: '#93c5fd' },
-  { id: 'p2', name: 'Personal', color: 'bg-[#34d399]', hex: '#34d399' },
-  { id: 'p3', name: 'Proyectos', color: 'bg-[#f472b6]', hex: '#f472b6' }
-];
-
-// Eventos iniciales correspondientes al mes actual en curso
-const getInitialEvents = () => {
-  const now = new Date();
-  const currentMonthName = MONTH_NAMES[now.getMonth()];
-  const currentDay = now.getDate();
-
-  return [
-    {
-      id: 'e1',
-      title: 'Discusión de UI/UX para el nuevo proyecto',
-      time: `${currentDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`,
-      type: 'meet',
-      link: 'meet.google.com/notel-project',
-      projectId: 'p1'
-    },
-    {
-      id: 'e2',
-      title: 'Kenjo Assou',
-      time: 'Llamando... 11:00 AM',
-      type: 'meet',
-      link: '',
-      projectId: 'p1'
-    }
-  ];
-};
 
 const STORAGE_KEYS = {
-  TASKS: 'midia_offline_tasks',
-  PROJECTS: 'midia_offline_projects',
-  EVENTS: 'midia_offline_events',
-  QUEUE: 'midia_offline_queue'
+  TASKS: 'midia_foldable_tasks',
+  SELECTED_ID: 'midia_foldable_selected_id'
 };
 
 export default function App() {
@@ -92,139 +72,90 @@ export default function App() {
 
   // Estado de red
   const [isOnline, setIsOnline] = useState(navigator.onLine);
-  const [syncing, setSyncing] = useState(false);
-  const [pendingSyncCount, setPendingSyncCount] = useState(0);
 
-  // Fecha y Calendario actual (detecta today automáticamente)
-  const today = useMemo(() => new Date(), []);
-  const [currentDate, setCurrentDate] = useState(() => new Date());
-  const [selectedCalendarDay, setSelectedCalendarDay] = useState(() => new Date().getDate());
-
-  // Datos
+  // Tareas
   const [tasks, setTasks] = useState(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEYS.TASKS);
-      return saved ? JSON.parse(saved) : [];
-    } catch { return []; }
+      return saved ? JSON.parse(saved) : DEFAULT_TASKS;
+    } catch {
+      return DEFAULT_TASKS;
+    }
   });
 
-  const [projects, setProjects] = useState(() => {
+  // Tarea seleccionada (Detail Panel)
+  const [selectedTaskId, setSelectedTaskId] = useState(() => {
     try {
-      const saved = localStorage.getItem(STORAGE_KEYS.PROJECTS);
-      return saved ? JSON.parse(saved) : DEFAULT_PROJECTS;
-    } catch { return DEFAULT_PROJECTS; }
+      const savedId = localStorage.getItem(STORAGE_KEYS.SELECTED_ID);
+      return savedId || DEFAULT_TASKS[0].id;
+    } catch {
+      return DEFAULT_TASKS[0].id;
+    }
   });
 
-  const [events, setEvents] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEYS.EVENTS);
-      return saved ? JSON.parse(saved) : getInitialEvents();
-    } catch { return getInitialEvents(); }
+  // Navegación móvil (Master vs Detail)
+  const [showMobileDetail, setShowMobileDetail] = useState(false);
+
+  // Pestaña en Detail panel ('details' | 'activity')
+  const [activeDetailTab, setActiveDetailTab] = useState('details');
+
+  // Secciones colapsables en Master panel
+  const [sectionsExpanded, setSectionsExpanded] = useState({
+    inProgress: true,
+    completed: true
   });
 
-  const [dataLoading, setDataLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState('tasks'); // 'tasks' | 'agenda'
-  const [selectedFilterProjectId, setSelectedFilterProjectId] = useState('all');
+  // Fecha seleccionada en el mini calendario semanal
+  const today = useMemo(() => new Date(), []);
+  const [selectedDayIndex, setSelectedDayIndex] = useState(() => today.getDay()); // 0 = SUN, 1 = MON, ...
 
-  // Formulario nueva tarea
-  const [newTaskTitle, setNewTaskTitle] = useState('');
-  const [newTaskProjectId, setNewTaskProjectId] = useState('');
-  const [submittingTask, setSubmittingTask] = useState(false);
-
-  // Modales
-  const [editingTask, setEditingTask] = useState(null);
-  const [eventModal, setEventModal] = useState({ open: false, isEditing: false, data: null });
-  const [projectModal, setProjectModal] = useState(false);
-
-  // Estado formularios
-  const [eventForm, setEventForm] = useState({
+  // Modal para crear nueva tarea
+  const [isNewTaskModalOpen, setIsNewTaskModalOpen] = useState(false);
+  const [newTaskForm, setNewTaskForm] = useState({
     title: '',
-    time: '11:00 AM - 12:00 PM',
-    type: 'meet',
-    link: '',
-    projectId: ''
+    priority: 'High',
+    startTime: '8:00 PM',
+    endTime: '8:30 PM',
+    description: ''
   });
+  const [submitting, setSubmitting] = useState(false);
 
-  const [projectForm, setProjectForm] = useState({
-    name: '',
-    color: 'bg-[#93c5fd]',
-    hex: '#93c5fd'
-  });
+  // Ordenamiento
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' | 'desc'
+  const [filterPriority, setFilterPriority] = useState('all'); // 'all' | 'High' | 'Medium' | 'Low'
 
-  // Guardar en caché offline
-  const saveOfflineCache = useCallback((newTasks, newProjects, newEvents) => {
-    try {
-      if (newTasks) localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(newTasks));
-      if (newProjects) localStorage.setItem(STORAGE_KEYS.PROJECTS, JSON.stringify(newProjects));
-      if (newEvents) localStorage.setItem(STORAGE_KEYS.EVENTS, JSON.stringify(newEvents));
-    } catch (e) {
-      console.warn('Error guardando cache:', e);
-    }
-  }, []);
-
-  // Encolar acciones offline
-  const enqueueOfflineAction = useCallback((action) => {
-    try {
-      const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-      q.push(action);
-      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(q));
-      setPendingSyncCount(q.length);
-    } catch (e) {
-      console.warn('Error encolando acción:', e);
-    }
-  }, []);
-
-  // Sincronizar cola
-  const syncPendingActions = useCallback(async () => {
-    if (!navigator.onLine) return;
-    const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-    if (q.length === 0) return;
-
-    try {
-      setSyncing(true);
-      const remaining = [];
-
-      for (const item of q) {
-        try {
-          if (item.type === 'ADD_TASK') await supabase.from('tasks').insert(item.payload);
-          else if (item.type === 'UPDATE_TASK') await supabase.from('tasks').update(item.payload.data).eq('id', item.payload.id);
-          else if (item.type === 'DELETE_TASK') await supabase.from('tasks').delete().eq('id', item.payload.id);
-          else if (item.type === 'ADD_EVENT') await supabase.from('events').insert(item.payload);
-          else if (item.type === 'UPDATE_EVENT') await supabase.from('events').update(item.payload.data).eq('id', item.payload.id);
-          else if (item.type === 'DELETE_EVENT') await supabase.from('events').delete().eq('id', item.payload.id);
-          else if (item.type === 'ADD_PROJECT') await supabase.from('projects').insert(item.payload);
-          else if (item.type === 'DELETE_PROJECT') await supabase.from('projects').delete().eq('id', item.payload.id);
-        } catch {
-          remaining.push(item);
-        }
-      }
-
-      localStorage.setItem(STORAGE_KEYS.QUEUE, JSON.stringify(remaining));
-      setPendingSyncCount(remaining.length);
-    } finally {
-      setSyncing(false);
-    }
-  }, []);
-
-  // Eventos de conectividad
+  // Persistir en LocalStorage
   useEffect(() => {
-    const onOnline = () => { setIsOnline(true); syncPendingActions(); };
-    const onOffline = () => { setIsOnline(false); };
+    try {
+      localStorage.setItem(STORAGE_KEYS.TASKS, JSON.stringify(tasks));
+    } catch (e) {
+      console.warn('Error guardando tareas localmente:', e);
+    }
+  }, [tasks]);
 
-    window.addEventListener('online', onOnline);
-    window.addEventListener('offline', onOffline);
+  useEffect(() => {
+    try {
+      if (selectedTaskId) {
+        localStorage.setItem(STORAGE_KEYS.SELECTED_ID, selectedTaskId);
+      }
+    } catch (e) {
+      console.warn('Error guardando ID seleccionado:', e);
+    }
+  }, [selectedTaskId]);
 
-    const q = JSON.parse(localStorage.getItem(STORAGE_KEYS.QUEUE) || '[]');
-    setPendingSyncCount(q.length);
-    if (navigator.onLine && q.length > 0) syncPendingActions();
-
+  // Manejo de eventos de red
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
     return () => {
-      window.removeEventListener('online', onOnline);
-      window.removeEventListener('offline', onOffline);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
-  }, [syncPendingActions]);
+  }, []);
 
-  // Sesión Auth
+  // Supabase Auth listener
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
@@ -239,1123 +170,869 @@ export default function App() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Carga de datos de Supabase
-  const loadUserData = useCallback(async (userId) => {
+  // Cargar tareas de Supabase
+  const loadTasksFromSupabase = useCallback(async (userId) => {
     if (!navigator.onLine) return;
-
     try {
-      setDataLoading(true);
-      await syncPendingActions();
-
-      // Proyectos
-      const { data: userProjects } = await supabase
-        .from('projects')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      let currentProjects = userProjects || [];
-      if (currentProjects.length === 0) {
-        const { data: newProjects } = await supabase
-          .from('projects')
-          .insert(DEFAULT_PROJECTS.map(p => ({ ...p, user_id: userId })))
-          .select();
-        if (newProjects) currentProjects = newProjects;
-      }
-
-      setProjects(currentProjects);
-      saveOfflineCache(null, currentProjects, null);
-      if (currentProjects.length > 0) {
-        setNewTaskProjectId(currentProjects[0].id);
-        setEventForm(prev => ({ ...prev, projectId: currentProjects[0].id }));
-      }
-
-      // Tareas
-      const { data: userTasks } = await supabase
+      const { data, error } = await supabase
         .from('tasks')
         .select('*')
         .order('created_at', { ascending: false });
 
-      const mappedTasks = (userTasks || []).map(t => ({
-        id: t.id,
-        title: t.title,
-        completed: t.completed,
-        projectId: t.project_id
-      }));
-      setTasks(mappedTasks);
-      saveOfflineCache(mappedTasks, null, null);
+      if (error) throw error;
 
-      // Eventos
-      const { data: userEvents } = await supabase
-        .from('events')
-        .select('*')
-        .order('created_at', { ascending: true });
-
-      if (userEvents && userEvents.length > 0) {
-        const mappedEvents = userEvents.map(e => ({
-          id: e.id,
-          title: e.title,
-          time: e.time,
-          type: e.type,
-          link: e.link,
-          projectId: e.project_id
+      if (data && data.length > 0) {
+        const mapped = data.map(t => ({
+          id: t.id,
+          title: t.title,
+          completed: Boolean(t.completed),
+          priority: t.priority || 'Medium',
+          start_time: t.start_time || '8:00 PM',
+          end_time: t.end_time || '8:30 PM',
+          description: t.description || '',
+          comments_count: t.comments_count || 0
         }));
-        setEvents(mappedEvents);
-        saveOfflineCache(null, null, mappedEvents);
-      } else {
-        const initialMock = getInitialEvents();
-        setEvents(initialMock);
-        saveOfflineCache(null, null, initialMock);
+        setTasks(mapped);
+        if (!mapped.some(t => t.id === selectedTaskId)) {
+          setSelectedTaskId(mapped[0].id);
+        }
       }
-
     } catch (err) {
-      console.warn('Error sincronizando con Supabase:', err);
-    } finally {
-      setDataLoading(false);
+      console.warn('Usando almacenamiento local para tareas:', err);
     }
-  }, [syncPendingActions, saveOfflineCache]);
+  }, [selectedTaskId]);
 
   useEffect(() => {
-    if (session?.user?.id) loadUserData(session.user.id);
-  }, [session, loadUserData]);
+    if (session?.user?.id) {
+      loadTasksFromSupabase(session.user.id);
+    }
+  }, [session, loadTasksFromSupabase]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setTasks([]);
-    setProjects([]);
-    setEvents([]);
-    localStorage.clear();
+    setTasks(DEFAULT_TASKS);
+    setSelectedTaskId(DEFAULT_TASKS[0].id);
   };
 
-  // CRUD TAREAS
-  const handleAddTask = async (e) => {
-    e.preventDefault();
-    if (!newTaskTitle.trim() || !session?.user?.id) return;
+  // Tarea actualmente seleccionada
+  const selectedTask = useMemo(() => {
+    return tasks.find(t => t.id === selectedTaskId) || tasks[0] || null;
+  }, [tasks, selectedTaskId]);
 
-    const tempId = 't-' + Date.now();
-    const projId = newTaskProjectId || projects[0]?.id;
-    const newTask = { id: tempId, title: newTaskTitle.trim(), completed: false, projectId: projId };
-
-    const updated = [newTask, ...tasks];
-    setTasks(updated);
-    saveOfflineCache(updated, null, null);
-    setNewTaskTitle('');
-
-    const payload = {
-      id: tempId,
-      title: newTask.title,
-      completed: false,
-      project_id: projId,
-      user_id: session.user.id
-    };
-
-    if (navigator.onLine) {
-      try {
-        setSubmittingTask(true);
-        const { data } = await supabase.from('tasks').insert([payload]).select().single();
-        if (data) setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
-      } catch {
-        enqueueOfflineAction({ type: 'ADD_TASK', payload });
-      } finally {
-        setSubmittingTask(false);
-      }
-    } else {
-      enqueueOfflineAction({ type: 'ADD_TASK', payload });
-    }
-  };
-
-  const toggleTask = async (taskId) => {
+  // Alternar completado
+  const toggleTaskCompleted = async (taskId, e) => {
+    if (e) e.stopPropagation();
     const task = tasks.find(t => t.id === taskId);
     if (!task) return;
 
     const newCompleted = !task.completed;
     const updated = tasks.map(t => t.id === taskId ? { ...t, completed: newCompleted } : t);
     setTasks(updated);
-    saveOfflineCache(updated, null, null);
 
-    if (navigator.onLine) {
+    if (navigator.onLine && session?.user?.id) {
       try {
         await supabase.from('tasks').update({ completed: newCompleted }).eq('id', taskId);
-      } catch {
-        enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: taskId, data: { completed: newCompleted } } });
+      } catch (err) {
+        console.warn('Error sincronizando completado con Supabase:', err);
       }
-    } else {
-      enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: taskId, data: { completed: newCompleted } } });
     }
   };
 
-  const handleUpdateTask = async (e) => {
-    e.preventDefault();
-    if (!editingTask || !editingTask.title.trim()) return;
-
-    const updated = tasks.map(t => 
-      t.id === editingTask.id ? { ...t, title: editingTask.title.trim(), projectId: editingTask.projectId } : t
-    );
+  // Cambiar prioridad de tarea
+  const changeTaskPriority = async (taskId, newPriority) => {
+    const updated = tasks.map(t => t.id === taskId ? { ...t, priority: newPriority } : t);
     setTasks(updated);
-    saveOfflineCache(updated, null, null);
 
-    const dataToUpdate = { title: editingTask.title.trim(), project_id: editingTask.projectId };
-
-    if (navigator.onLine) {
+    if (navigator.onLine && session?.user?.id) {
       try {
-        await supabase.from('tasks').update(dataToUpdate).eq('id', editingTask.id);
-      } catch {
-        enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: editingTask.id, data: dataToUpdate } });
+        await supabase.from('tasks').update({ priority: newPriority }).eq('id', taskId);
+      } catch (err) {
+        console.warn('Error actualizando prioridad:', err);
       }
-    } else {
-      enqueueOfflineAction({ type: 'UPDATE_TASK', payload: { id: editingTask.id, data: dataToUpdate } });
     }
-    setEditingTask(null);
   };
 
-  const deleteTask = async (taskId) => {
-    const updated = tasks.filter(t => t.id !== taskId);
-    setTasks(updated);
-    saveOfflineCache(updated, null, null);
+  // Cambiar estado (In Progress <-> Completed) desde el panel Detail
+  const toggleStatusFromDetail = () => {
+    if (!selectedTask) return;
+    toggleTaskCompleted(selectedTask.id);
+  };
 
-    if (navigator.onLine) {
+  // Actualizar descripción
+  const updateTaskDescription = async (newDesc) => {
+    if (!selectedTask) return;
+    const updated = tasks.map(t => t.id === selectedTask.id ? { ...t, description: newDesc } : t);
+    setTasks(updated);
+
+    if (navigator.onLine && session?.user?.id) {
+      try {
+        await supabase.from('tasks').update({ description: newDesc }).eq('id', selectedTask.id);
+      } catch (err) {
+        console.warn('Error actualizando descripción:', err);
+      }
+    }
+  };
+
+  // Eliminar tarea
+  const deleteTask = async (taskId, e) => {
+    if (e) e.stopPropagation();
+    const remaining = tasks.filter(t => t.id !== taskId);
+    setTasks(remaining);
+    if (selectedTaskId === taskId && remaining.length > 0) {
+      setSelectedTaskId(remaining[0].id);
+    }
+
+    if (navigator.onLine && session?.user?.id) {
       try {
         await supabase.from('tasks').delete().eq('id', taskId);
-      } catch {
-        enqueueOfflineAction({ type: 'DELETE_TASK', payload: { id: taskId } });
+      } catch (err) {
+        console.warn('Error eliminando tarea de Supabase:', err);
       }
-    } else {
-      enqueueOfflineAction({ type: 'DELETE_TASK', payload: { id: taskId } });
     }
   };
 
-  // CRUD EVENTOS
-  const openCreateEventModal = () => {
-    const currentMonthName = MONTH_NAMES[currentDate.getMonth()];
-    setEventForm({
-      title: '',
-      time: `${selectedCalendarDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`,
-      type: 'meet',
-      link: '',
-      projectId: projects[0]?.id || ''
-    });
-    setEventModal({ open: true, isEditing: false, data: null });
-  };
-
-  const openEditEventModal = (event) => {
-    setEventForm({
-      title: event.title,
-      time: event.time,
-      type: event.type,
-      link: event.link || '',
-      projectId: event.projectId
-    });
-    setEventModal({ open: true, isEditing: true, data: event });
-  };
-
-  const handleSaveEvent = async (e) => {
+  // Crear nueva tarea
+  const handleCreateTask = async (e) => {
     e.preventDefault();
-    if (!eventForm.title.trim() || !session?.user?.id) return;
+    if (!newTaskForm.title.trim()) return;
 
-    if (eventModal.isEditing && eventModal.data) {
-      const updated = events.map(ev => 
-        ev.id === eventModal.data.id ? {
-          ...ev,
-          title: eventForm.title.trim(),
-          time: eventForm.time,
-          type: eventForm.type,
-          link: eventForm.link.trim(),
-          projectId: eventForm.projectId
-        } : ev
-      );
-      setEvents(updated);
-      saveOfflineCache(null, null, updated);
-
-      const dataToUpdate = {
-        title: eventForm.title.trim(),
-        time: eventForm.time,
-        type: eventForm.type,
-        link: eventForm.link.trim(),
-        project_id: eventForm.projectId
-      };
-
-      if (navigator.onLine) {
-        try {
-          await supabase.from('events').update(dataToUpdate).eq('id', eventModal.data.id);
-        } catch {
-          enqueueOfflineAction({ type: 'UPDATE_EVENT', payload: { id: eventModal.data.id, data: dataToUpdate } });
-        }
-      } else {
-        enqueueOfflineAction({ type: 'UPDATE_EVENT', payload: { id: eventModal.data.id, data: dataToUpdate } });
-      }
-    } else {
-      const tempId = 'e-' + Date.now();
-      const newEvent = {
+    try {
+      setSubmitting(true);
+      const tempId = 't-' + Date.now();
+      const newTask = {
         id: tempId,
-        title: eventForm.title.trim(),
-        time: eventForm.time,
-        type: eventForm.type,
-        link: eventForm.link.trim(),
-        projectId: eventForm.projectId || projects[0]?.id
+        title: newTaskForm.title.trim(),
+        completed: false,
+        priority: newTaskForm.priority,
+        start_time: newTaskForm.startTime,
+        end_time: newTaskForm.endTime,
+        description: newTaskForm.description.trim() || 'Sin descripción adicional.',
+        comments_count: 0
       };
 
-      const updated = [...events, newEvent];
-      setEvents(updated);
-      saveOfflineCache(null, null, updated);
+      const updated = [newTask, ...tasks];
+      setTasks(updated);
+      setSelectedTaskId(tempId);
+      setShowMobileDetail(true);
+      setIsNewTaskModalOpen(false);
+      setNewTaskForm({
+        title: '',
+        priority: 'High',
+        startTime: '8:00 PM',
+        endTime: '8:30 PM',
+        description: ''
+      });
 
-      const payload = {
-        id: tempId,
-        title: newEvent.title,
-        time: newEvent.time,
-        type: newEvent.type,
-        link: newEvent.link,
-        project_id: newEvent.projectId,
-        user_id: session.user.id
-      };
+      if (navigator.onLine && session?.user?.id) {
+        const { data, error } = await supabase.from('tasks').insert([{
+          title: newTask.title,
+          completed: false,
+          priority: newTask.priority,
+          start_time: newTask.start_time,
+          end_time: newTask.end_time,
+          description: newTask.description,
+          user_id: session.user.id
+        }]).select().single();
 
-      if (navigator.onLine) {
-        try {
-          const { data } = await supabase.from('events').insert([payload]).select().single();
-          if (data) setEvents(prev => prev.map(ev => ev.id === tempId ? { ...ev, id: data.id } : ev));
-        } catch {
-          enqueueOfflineAction({ type: 'ADD_EVENT', payload });
+        if (data && !error) {
+          setTasks(prev => prev.map(t => t.id === tempId ? { ...t, id: data.id } : t));
+          setSelectedTaskId(data.id);
         }
-      } else {
-        enqueueOfflineAction({ type: 'ADD_EVENT', payload });
       }
-    }
-    setEventModal({ open: false, isEditing: false, data: null });
-  };
-
-  const handleDeleteEvent = async (eventId) => {
-    const updated = events.filter(e => e.id !== eventId);
-    setEvents(updated);
-    saveOfflineCache(null, null, updated);
-
-    if (navigator.onLine) {
-      try {
-        await supabase.from('events').delete().eq('id', eventId);
-      } catch {
-        enqueueOfflineAction({ type: 'DELETE_EVENT', payload: { id: eventId } });
-      }
-    } else {
-      enqueueOfflineAction({ type: 'DELETE_EVENT', payload: { id: eventId } });
+    } catch (err) {
+      console.warn('Error creando tarea:', err);
+    } finally {
+      setSubmitting(false);
     }
   };
 
-  // CRUD PROYECTOS
-  const handleCreateProject = async (e) => {
-    e.preventDefault();
-    if (!projectForm.name.trim() || !session?.user?.id) return;
-
-    const tempId = 'p-' + Date.now();
-    const newProj = {
-      id: tempId,
-      name: projectForm.name.trim(),
-      color: projectForm.color,
-      hex: projectForm.hex
-    };
-
-    const updated = [...projects, newProj];
-    setProjects(updated);
-    saveOfflineCache(null, updated, null);
-    setProjectForm({ name: '', color: 'bg-[#93c5fd]', hex: '#93c5fd' });
-    setProjectModal(false);
-
-    const payload = {
-      id: tempId,
-      name: newProj.name,
-      color: newProj.color,
-      hex: newProj.hex,
-      user_id: session.user.id
-    };
-
-    if (navigator.onLine) {
-      try {
-        const { data } = await supabase.from('projects').insert([payload]).select().single();
-        if (data) setProjects(prev => prev.map(p => p.id === tempId ? data : p));
-      } catch {
-        enqueueOfflineAction({ type: 'ADD_PROJECT', payload });
-      }
-    } else {
-      enqueueOfflineAction({ type: 'ADD_PROJECT', payload });
-    }
-  };
-
-  const getProjectDetails = (projectId) => {
-    return projects.find(p => p.id === projectId) || projects[0] || {
-      name: 'General',
-      color: 'bg-[#93c5fd]',
-      hex: '#93c5fd'
-    };
-  };
-
-  // Navegación de mes del calendario
-  const navigateMonth = (direction) => {
-    setCurrentDate(prev => {
-      const nextDate = new Date(prev.getFullYear(), prev.getMonth() + direction, 1);
-      // Ajustar selectedCalendarDay si el nuevo mes tiene menos días
-      const daysInNextMonth = new Date(nextDate.getFullYear(), nextDate.getMonth() + 1, 0).getDate();
-      setSelectedCalendarDay(curr => Math.min(curr, daysInNextMonth));
-      return nextDate;
+  // Calcular días de la semana actual (DOM - SAB)
+  const weekDays = useMemo(() => {
+    const days = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'];
+    const currentDay = today.getDate();
+    const currentDayOfWeek = today.getDay(); // 0 a 6
+    
+    // Obtener las fechas de los 7 días de la semana en curso
+    return days.map((label, idx) => {
+      const diff = idx - currentDayOfWeek;
+      const d = new Date(today);
+      d.setDate(currentDay + diff);
+      return {
+        label,
+        dateNum: d.getDate(),
+        dayOfWeekIndex: idx
+      };
     });
-  };
+  }, [today]);
 
-  // Lógica de alineación real del calendario (días del mes con sus días de semana D, L, M, M, J, V, S)
-  const currentYear = currentDate.getFullYear();
-  const currentMonth = currentDate.getMonth();
-  const currentMonthName = MONTH_NAMES[currentMonth];
-  const firstDayOfWeek = new Date(currentYear, currentMonth, 1).getDay(); // 0 = Domingo, 1 = Lunes, etc.
-  const daysInMonth = new Date(currentYear, currentMonth + 1, 0).getDate();
+  // Filtrado y agrupamiento
+  const processedTasks = useMemo(() => {
+    let list = [...tasks];
+    if (filterPriority !== 'all') {
+      list = list.filter(t => t.priority === filterPriority);
+    }
+    if (sortOrder === 'asc') {
+      list.reverse();
+    }
+    return list;
+  }, [tasks, filterPriority, sortOrder]);
 
-  // Filtrado de tareas
-  const filteredTasks = selectedFilterProjectId === 'all' 
-    ? tasks 
-    : tasks.filter(t => t.projectId === selectedFilterProjectId);
+  const inProgressTasks = useMemo(() => processedTasks.filter(t => !t.completed), [processedTasks]);
+  const completedTasks = useMemo(() => processedTasks.filter(t => t.completed), [processedTasks]);
 
+  // Si está cargando auth
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#0b0d11] flex flex-col items-center justify-center text-white gap-3">
-        <Loader2 className="w-8 h-8 animate-spin text-[#34d399]" />
-        <p className="text-sm text-neutral-400">Iniciando Mi Día...</p>
+      <div className="min-h-screen bg-[#0f0f11] flex flex-col items-center justify-center text-white gap-3 font-sans">
+        <Loader2 className="w-8 h-8 animate-spin text-[#3b82f6]" />
+        <p className="text-xs text-neutral-400 tracking-wide">Cargando Mi Día...</p>
       </div>
     );
   }
 
+  // Si no hay sesión, mostrar pantalla de Auth
   if (!session) {
     return <Auth />;
   }
 
   return (
-    <div className="min-h-screen bg-[#0b0d11] text-slate-100 font-sans p-3 sm:p-6 md:p-8 flex justify-center pb-28 md:pb-8 selection:bg-[#34d399] selection:text-black">
+    <div className="min-h-screen bg-[#0a0a0c] text-neutral-100 font-sans p-2 sm:p-4 lg:p-6 flex items-center justify-center selection:bg-[#2563eb] selection:text-white">
       
-      {/* Contenedor Principal */}
-      <div className="max-w-6xl w-full flex flex-col md:flex-row gap-6 items-start">
+      {/* Marco envolvente con efecto dispositivo plegable / tablet */}
+      <div className="w-full max-w-7xl h-[94vh] max-h-[960px] bg-[#0f0f11] rounded-[36px] sm:rounded-[44px] p-2.5 sm:p-4 border border-white/[0.07] shadow-2xl shadow-black flex gap-3 relative overflow-hidden">
         
-        {/* ======================================================== */}
-        {/* SIDEBAR FLOTANTE VERTICAL */}
-        {/* ======================================================== */}
-        <aside className="hidden lg:flex flex-col items-center justify-between bg-[#181a20] border border-white/5 rounded-[36px] py-6 px-3 shadow-2xl shadow-black/80 w-16 flex-shrink-0 sticky top-8">
+        {/* ==================================================================== */}
+        {/* PANEL IZQUIERDO: MASTER (Lista de Tareas)                           */}
+        {/* ==================================================================== */}
+        <div className={`
+          flex-1 lg:max-w-[46%] xl:max-w-[44%] bg-[#131418] rounded-[28px] sm:rounded-[36px] 
+          p-4 sm:p-6 border border-white/[0.04] shadow-inner flex flex-col overflow-hidden transition-all duration-300
+          ${showMobileDetail ? 'hidden lg:flex' : 'flex'}
+        `}>
           
-          <div className="w-10 h-10 rounded-2xl bg-[#22252c] border border-white/5 flex items-center justify-center text-xl shadow-inner mb-6">
-            👍
-          </div>
-
-          <div className="flex flex-col items-center gap-6">
-            <button
-              onClick={() => openCreateEventModal()}
-              title="Añadir evento"
-              className="text-neutral-400 hover:text-white transition-colors p-2"
-            >
-              <Plus className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={() => setActiveTab('tasks')}
-              title="Tareas"
-              className="relative p-2 text-neutral-400 hover:text-white transition-colors"
-            >
-              <ListTodo className={`w-5 h-5 ${activeTab === 'tasks' ? 'text-[#34d399]' : ''}`} />
-              {activeTab === 'tasks' && (
-                <span className="absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#34d399]"></span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setActiveTab('agenda')}
-              title="Agenda y Calendario"
-              className="relative p-2 text-neutral-400 hover:text-white transition-colors"
-            >
-              <CalendarIcon className={`w-5 h-5 ${activeTab === 'agenda' ? 'text-[#34d399]' : ''}`} />
-              {activeTab === 'agenda' && (
-                <span className="absolute -right-1 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full bg-[#34d399]"></span>
-              )}
-            </button>
-
-            <button
-              onClick={() => setProjectModal(true)}
-              title="Proyectos"
-              className="text-neutral-400 hover:text-white transition-colors p-2"
-            >
-              <Users className="w-5 h-5" />
-            </button>
-
-            <button
-              onClick={() => alert(`Usuario conectado: ${session?.user?.email}`)}
-              title="Información de cuenta"
-              className="text-neutral-400 hover:text-white transition-colors p-2"
-            >
-              <MessageSquare className="w-5 h-5" />
-            </button>
-          </div>
-
-          <button
-            onClick={handleLogout}
-            title="Cerrar sesión"
-            className="mt-6 p-2 text-neutral-500 hover:text-rose-400 transition-colors"
-          >
-            <LogOut className="w-5 h-5" />
-          </button>
-        </aside>
-
-        {/* ======================================================== */}
-        {/* GRID CENTRAL: 2 COLUMNAS */}
-        {/* ======================================================== */}
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-12 gap-6 w-full">
-          
-          {/* ------------------------------------------------------ */}
-          {/* COLUMNA 1: Calendario, Selector de Color y Tareas */}
-          {/* ------------------------------------------------------ */}
-          <div className={`lg:col-span-6 space-y-6 ${activeTab === 'tasks' ? 'block' : 'hidden lg:block'}`}>
+          {/* Cabecera Master */}
+          <div className="flex items-center justify-between mb-5">
+            <h1 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              Tasks
+            </h1>
             
-            {/* Header móvil y barra de estado */}
-            <div className="flex items-center justify-between px-1">
-              <div>
-                <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-white">Mi Día</h1>
-                <p className="text-xs text-neutral-400">
-                  {tasks.filter(t => !t.completed).length} tareas pendientes para hoy
-                </p>
-              </div>
-
-              {/* Indicador Offline / Online */}
-              <div className="flex items-center gap-2">
-                {!isOnline ? (
-                  <span className="inline-flex items-center gap-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-xs px-3 py-1 rounded-full font-medium">
-                    <WifiOff className="w-3.5 h-3.5" /> Offline
-                  </span>
-                ) : pendingSyncCount > 0 ? (
-                  <span className="inline-flex items-center gap-1.5 bg-[#34d399]/10 text-[#34d399] text-xs px-3 py-1 rounded-full font-medium">
-                    <CloudUpload className="w-3.5 h-3.5 animate-bounce" /> Subiendo ({pendingSyncCount})
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1.5 bg-[#181a20] border border-white/5 text-neutral-400 text-xs px-3 py-1 rounded-full">
-                    <span className="w-2 h-2 rounded-full bg-[#34d399]"></span> En línea
-                  </span>
-                )}
-                <button
-                  onClick={handleLogout}
-                  title="Cerrar sesión"
-                  className="lg:hidden p-2 text-neutral-400 hover:text-rose-400 bg-[#181a20] rounded-xl border border-white/5"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* TARJETA 1: Calendario Real con alineación exacta D, L, M, M, J, V, S */}
-            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <span className="font-bold text-white text-sm sm:text-base capitalize">
-                    {currentMonthName}, {currentYear}
-                  </span>
-                  <div className="flex items-center gap-1">
-                    <button 
-                      onClick={() => navigateMonth(-1)}
-                      title="Mes anterior"
-                      className="p-1 text-neutral-400 hover:text-white rounded-lg transition"
-                    >
-                      <ChevronLeft className="w-4 h-4" />
-                    </button>
-                    <button 
-                      onClick={() => navigateMonth(1)}
-                      title="Mes siguiente"
-                      className="p-1 text-neutral-400 hover:text-white rounded-lg transition"
-                    >
-                      <ChevronRight className="w-4 h-4" />
-                    </button>
-                  </div>
-                </div>
-
-                <button 
-                  onClick={() => openCreateEventModal()}
-                  title="Nuevo evento"
-                  className="text-amber-400 hover:text-amber-300 font-bold text-lg p-1 transition-transform hover:scale-110"
-                >
-                  +
-                </button>
-              </div>
-
-              {/* Iniciales en Español: D, L, M, M, J, V, S con fines de semana en rojo coral */}
-              <div className="grid grid-cols-7 gap-1 text-center text-xs font-semibold mb-3">
-                <span className="text-rose-400">D</span>
-                <span className="text-neutral-400">L</span>
-                <span className="text-neutral-400">M</span>
-                <span className="text-neutral-400">M</span>
-                <span className="text-neutral-400">J</span>
-                <span className="text-neutral-400">V</span>
-                <span className="text-rose-400">S</span>
-              </div>
-
-              {/* Días alineados con sus días de semana reales */}
-              <div className="grid grid-cols-7 gap-1 text-center text-xs">
-                {/* Celdas vacías para alinear el primer día del mes */}
-                {Array.from({ length: firstDayOfWeek }).map((_, idx) => (
-                  <div key={`empty-${idx}`} className="w-9 h-9" />
-                ))}
-
-                {/* Días reales del mes */}
-                {Array.from({ length: daysInMonth }, (_, idx) => idx + 1).map(day => {
-                  const isSelected = selectedCalendarDay === day;
-                  const isToday = 
-                    today.getDate() === day && 
-                    today.getMonth() === currentMonth && 
-                    today.getFullYear() === currentYear;
-
-                  return (
-                    <button
-                      key={day}
-                      onClick={() => setSelectedCalendarDay(day)}
-                      className={`w-9 h-9 mx-auto rounded-full flex items-center justify-center font-bold transition-all ${
-                        isSelected
-                          ? 'bg-[#34d399] text-[#0b0d11] shadow-lg shadow-[#34d399]/30 scale-105'
-                          : isToday
-                          ? 'bg-[#121417] text-[#34d399] border border-[#34d399]/50 hover:bg-[#20232a]'
-                          : 'bg-[#121417] text-neutral-300 hover:bg-[#20232a]'
-                      }`}
-                    >
-                      {day}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-
-            {/* TARJETA 2: Selector de Color ("ELIGE UN COLOR :") */}
-            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 shadow-2xl shadow-black/50">
-              <h3 className="text-[11px] font-bold uppercase tracking-wider text-neutral-400 mb-3">
-                ELIGE UN COLOR :
-              </h3>
-              
-              <div className="flex items-center gap-3">
-                {COLOR_OPTIONS.slice(0, 4).map(c => (
-                  <button
-                    key={c.hex}
-                    onClick={() => setProjectForm(prev => ({ ...prev, color: c.color, hex: c.hex }))}
-                    className={`w-10 h-10 rounded-2xl ${c.color} flex items-center justify-center transition-transform hover:scale-105 shadow-inner ${
-                      projectForm.hex === c.hex ? 'ring-2 ring-white ring-offset-2 ring-offset-[#181a20]' : ''
-                    }`}
-                  >
-                    {projectForm.hex === c.hex && (
-                      <Check className={`w-4 h-4 ${c.text} stroke-[3]`} />
-                    )}
-                  </button>
-                ))}
-
-                {/* Divisor vertical */}
-                <div className="h-6 w-px bg-white/10 mx-1"></div>
-
-                <button
-                  onClick={() => setProjectModal(true)}
-                  title="Crear nuevo proyecto con color"
-                  className="w-10 h-10 rounded-2xl bg-[#34d399] text-[#0b0d11] flex items-center justify-center transition-transform hover:scale-105 shadow-lg shadow-[#34d399]/20"
-                >
-                  <Pipette className="w-4 h-4" />
-                </button>
-              </div>
-            </div>
-
-            {/* TARJETA 3: Evento rápido con formato en español (ej. "6 de Octubre") */}
-            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-4 flex items-center gap-4 shadow-2xl shadow-black/50">
-              <div className="w-12 h-12 rounded-2xl bg-[#34d399] flex items-center justify-center text-[#0b0d11] shadow-lg shadow-[#34d399]/20 flex-shrink-0">
-                <CalendarIcon className="w-6 h-6 stroke-[2.5]" />
-              </div>
-              <div className="flex-1 min-w-0">
-                <span className="text-xs text-neutral-400 font-medium block">
-                  {selectedCalendarDay} de {currentMonthName}
-                </span>
-                <span className="text-sm font-bold text-white tracking-wide">
-                  11:00 AM - 12:00 PM
-                </span>
-              </div>
-            </div>
-
-            {/* FORMULARIO PARA AGREGAR TAREA */}
-            <form onSubmit={handleAddTask} className="bg-[#181a20] border border-white/5 rounded-[24px] p-2 flex items-center gap-2 shadow-2xl">
-              <input
-                type="text"
-                placeholder="Nueva tarea pendiente..."
-                value={newTaskTitle}
-                onChange={(e) => setNewTaskTitle(e.target.value)}
-                className="flex-1 bg-transparent px-3 py-2 text-sm text-white placeholder-neutral-500 focus:outline-none"
-              />
-              <select
-                value={newTaskProjectId}
-                onChange={(e) => setNewTaskProjectId(e.target.value)}
-                className="bg-[#121417] text-neutral-300 text-xs rounded-xl px-2.5 py-2.5 border border-white/5 focus:outline-none cursor-pointer"
+            <div className="flex items-center gap-2">
+              {/* Botón Ordenar */}
+              <button 
+                onClick={() => setSortOrder(prev => prev === 'desc' ? 'asc' : 'desc')}
+                title="Ordenar tareas"
+                className="w-9 h-9 rounded-full bg-[#1b1d24] border border-white/5 flex items-center justify-center text-neutral-300 hover:text-white hover:bg-[#23252e] transition"
               >
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-              <button
-                type="submit"
-                disabled={!newTaskTitle.trim() || submittingTask}
-                className="bg-[#34d399] text-[#0b0d11] p-2.5 rounded-xl font-bold hover:bg-[#2ecc71] transition-all disabled:opacity-40"
-              >
-                <Plus className="w-4 h-4 stroke-[3]" />
+                <ArrowUpDown className="w-4 h-4" />
               </button>
-            </form>
 
-            {/* LISTA DE TAREAS */}
-            <div className="space-y-2.5">
-              <div className="flex items-center justify-between px-1">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-neutral-400">
-                  Tus Tareas ({filteredTasks.length})
-                </h3>
-                {/* Filtro rápido */}
-                <div className="flex gap-1.5 overflow-x-auto text-[11px]">
+              {/* Botón Filtro */}
+              <button 
+                onClick={() => {
+                  const cycle = ['all', 'High', 'Medium', 'Low'];
+                  const nextIdx = (cycle.indexOf(filterPriority) + 1) % cycle.length;
+                  setFilterPriority(cycle[nextIdx]);
+                }}
+                title={`Filtro actual: ${filterPriority}`}
+                className={`w-9 h-9 rounded-full border border-white/5 flex items-center justify-center transition ${
+                  filterPriority !== 'all' ? 'bg-[#2563eb] text-white' : 'bg-[#1b1d24] text-neutral-300 hover:text-white hover:bg-[#23252e]'
+                }`}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Selector de Fecha y Calendario Semanal Horizontal */}
+          <div className="mb-6 bg-[#16171d]/80 border border-white/[0.03] rounded-2xl p-3.5">
+            
+            {/* Mes/Año desplegable */}
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-neutral-300 mb-3 cursor-pointer hover:text-white">
+              <span>{today.toLocaleString('en-US', { month: 'short' })} {today.getFullYear()}</span>
+              <ChevronDown className="w-3.5 h-3.5 text-neutral-400" />
+              {!isOnline && (
+                <span className="ml-auto text-[10px] text-amber-400 font-medium bg-amber-400/10 px-2 py-0.5 rounded-full flex items-center gap-1">
+                  <WifiOff className="w-2.5 h-2.5" /> Offline
+                </span>
+              )}
+            </div>
+
+            {/* Días de la semana (DOM - SAB) con día resaltado en círculo azul */}
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {weekDays.map(item => {
+                const isSelected = selectedDayIndex === item.dayOfWeekIndex;
+                return (
                   <button
-                    onClick={() => setSelectedFilterProjectId('all')}
-                    className={`px-2.5 py-1 rounded-full font-medium transition ${
-                      selectedFilterProjectId === 'all' ? 'bg-[#34d399] text-[#0b0d11]' : 'text-neutral-400 hover:text-white'
-                    }`}
+                    key={item.label}
+                    onClick={() => setSelectedDayIndex(item.dayOfWeekIndex)}
+                    className="flex flex-col items-center gap-1.5 py-1 group transition"
                   >
-                    Todas
+                    <span className="text-[10px] font-semibold tracking-wider text-neutral-500 group-hover:text-neutral-300">
+                      {item.label}
+                    </span>
+                    <span className={`
+                      w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all
+                      ${isSelected 
+                        ? 'bg-[#2563eb] text-white shadow-lg shadow-blue-500/40 scale-105 ring-2 ring-blue-400/30' 
+                        : 'text-neutral-300 hover:bg-[#21232c] hover:text-white'
+                      }
+                    `}>
+                      {item.dateNum}
+                    </span>
                   </button>
-                  {projects.map(p => (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedFilterProjectId(p.id)}
-                      className={`px-2.5 py-1 rounded-full font-medium transition flex items-center gap-1 ${
-                        selectedFilterProjectId === p.id ? 'bg-[#34d399] text-[#0b0d11]' : 'text-neutral-400 hover:text-white'
-                      }`}
-                    >
-                      <span className={`w-1.5 h-1.5 rounded-full ${p.color}`}></span>
-                      {p.name}
-                    </button>
-                  ))}
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Lista Colapsable de Tareas (Scrollable) */}
+          <div className="flex-1 overflow-y-auto space-y-5 pr-1 scrollbar-thin scrollbar-thumb-neutral-800">
+            
+            {/* SECCIÓN 1: In Progress */}
+            <div>
+              <button 
+                onClick={() => setSectionsExpanded(p => ({ ...p, inProgress: !p.inProgress }))}
+                className="w-full flex items-center justify-between text-xs font-semibold text-neutral-300 mb-2.5 hover:text-white group"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#34d399] shadow-sm shadow-emerald-400/50"></span>
+                  <span className="tracking-wide">In Progress</span>
+                  <span className="text-[11px] text-neutral-500">({inProgressTasks.length})</span>
                 </div>
+                {sectionsExpanded.inProgress ? (
+                  <ChevronDown className="w-4 h-4 text-neutral-500 group-hover:text-white transition" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition" />
+                )}
+              </button>
+
+              {sectionsExpanded.inProgress && (
+                <div className="space-y-2.5 animate-in fade-in duration-200">
+                  {inProgressTasks.length === 0 ? (
+                    <div className="p-4 rounded-2xl bg-[#17181f]/40 border border-dashed border-white/5 text-center text-xs text-neutral-500">
+                      No hay tareas en progreso para hoy.
+                    </div>
+                  ) : (
+                    inProgressTasks.map(task => {
+                      const isSelected = selectedTaskId === task.id;
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => {
+                            setSelectedTaskId(task.id);
+                            setShowMobileDetail(true);
+                          }}
+                          className={`
+                            group p-4 rounded-2xl border transition-all cursor-pointer relative
+                            ${isSelected 
+                              ? 'bg-[#1a1c24] border-blue-500/40 shadow-lg shadow-black/40' 
+                              : 'bg-[#16171d] border-white/[0.04] hover:bg-[#1a1c22] hover:border-white/10'
+                            }
+                          `}
+                        >
+                          <div className="flex items-start gap-3.5">
+                            {/* Checkbox circular (pendiente) */}
+                            <button
+                              type="button"
+                              onClick={(e) => toggleTaskCompleted(task.id, e)}
+                              className="mt-0.5 w-5 h-5 rounded-full border border-neutral-600 group-hover:border-neutral-400 flex items-center justify-center transition flex-shrink-0"
+                            >
+                              <div className="w-2.5 h-2.5 rounded-full bg-transparent group-hover:bg-neutral-600 transition"></div>
+                            </button>
+
+                            {/* Contenido */}
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-sm font-semibold text-white truncate mb-1.5">
+                                {task.title}
+                              </h3>
+
+                              {/* Fila 1: Hora */}
+                              <div className="flex items-center gap-1.5 text-xs text-neutral-400 mb-1">
+                                <Clock className="w-3.5 h-3.5 text-neutral-500" />
+                                <span>{task.start_time}{task.end_time ? ` - ${task.end_time}` : ''}</span>
+                              </div>
+
+                              {/* Fila 2: Prioridad y Comentarios */}
+                              <div className="flex items-center gap-3 text-xs">
+                                <div className="flex items-center gap-1">
+                                  <Flag className={`w-3.5 h-3.5 ${
+                                    task.priority === 'High' ? 'text-red-500' : 
+                                    task.priority === 'Medium' ? 'text-amber-400' : 'text-blue-400'
+                                  }`} />
+                                  <span className="text-[11px] text-neutral-400 font-medium">
+                                    {task.priority} Priority
+                                  </span>
+                                </div>
+
+                                {task.comments_count > 0 && (
+                                  <div className="flex items-center gap-1 text-[11px] text-neutral-500">
+                                    <MessageSquare className="w-3 h-3" />
+                                    <span>{task.comments_count}</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* SECCIÓN 2: Completed */}
+            <div>
+              <button 
+                onClick={() => setSectionsExpanded(p => ({ ...p, completed: !p.completed }))}
+                className="w-full flex items-center justify-between text-xs font-semibold text-neutral-300 mb-2.5 hover:text-white group"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-[#34d399] shadow-sm shadow-emerald-400/50"></span>
+                  <span className="tracking-wide">Completed</span>
+                  <span className="text-[11px] text-neutral-500">({completedTasks.length})</span>
+                </div>
+                {sectionsExpanded.completed ? (
+                  <ChevronDown className="w-4 h-4 text-neutral-500 group-hover:text-white transition" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition" />
+                )}
+              </button>
+
+              {sectionsExpanded.completed && (
+                <div className="space-y-2.5 animate-in fade-in duration-200">
+                  {completedTasks.length === 0 ? (
+                    <div className="p-4 rounded-2xl bg-[#17181f]/40 border border-dashed border-white/5 text-center text-xs text-neutral-500">
+                      No hay tareas completadas aún.
+                    </div>
+                  ) : (
+                    completedTasks.map(task => {
+                      const isSelected = selectedTaskId === task.id;
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => {
+                            setSelectedTaskId(task.id);
+                            setShowMobileDetail(true);
+                          }}
+                          className={`
+                            group p-4 rounded-2xl border transition-all cursor-pointer opacity-75 hover:opacity-100
+                            ${isSelected 
+                              ? 'bg-[#1a1c24] border-blue-500/40 shadow-lg shadow-black/40' 
+                              : 'bg-[#16171d] border-white/[0.04] hover:bg-[#1a1c22]'
+                            }
+                          `}
+                        >
+                          <div className="flex items-start gap-3.5">
+                            {/* Checkbox circular azul con palomita */}
+                            <button
+                              type="button"
+                              onClick={(e) => toggleTaskCompleted(task.id, e)}
+                              className="mt-0.5 w-5 h-5 rounded-full bg-[#2563eb] text-white flex items-center justify-center shadow-sm shadow-blue-500/40 flex-shrink-0"
+                            >
+                              <Check className="w-3.5 h-3.5 stroke-[3]" />
+                            </button>
+
+                            <div className="flex-1 min-w-0">
+                              <h3 className="text-sm font-semibold text-neutral-300 line-through truncate mb-1">
+                                {task.title}
+                              </h3>
+                              <div className="flex items-center gap-1.5 text-xs text-neutral-500">
+                                <Clock className="w-3.5 h-3.5" />
+                                <span>{task.start_time}</span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+
+          </div>
+
+        </div>
+
+        {/* ==================================================================== */}
+        {/* PANEL DERECHO: DETAIL (Detalles de la Tarea)                        */}
+        {/* ==================================================================== */}
+        <div className={`
+          flex-1 bg-[#15161b] rounded-[28px] sm:rounded-[36px] p-5 sm:p-7 
+          border border-white/[0.04] shadow-2xl flex flex-col justify-between overflow-y-auto
+          ${showMobileDetail ? 'flex' : 'hidden lg:flex'}
+        `}>
+          
+          {selectedTask ? (
+            <div>
+              {/* Botón Volver para móvil */}
+              <div className="lg:hidden flex items-center justify-between mb-4 pb-2 border-b border-white/5">
+                <button 
+                  onClick={() => setShowMobileDetail(false)}
+                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-400 hover:text-white"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Volver a Tareas</span>
+                </button>
+                <span className="text-xs text-neutral-500">Detalles</span>
               </div>
 
-              {/* LÓGICA CONDICIONAL DE ESTADO VACÍO */}
-              {filteredTasks.length === 0 ? (
-                <div className="bg-[#181a20] border border-white/5 rounded-2xl p-6 text-center text-neutral-500 text-xs">
-                  {selectedFilterProjectId === 'all'
-                    ? 'No hay tareas pendientes para hoy'
-                    : 'No hay tareas pendientes en este proyecto'}
-                </div>
-              ) : (
-                filteredTasks.map(task => {
-                  const proj = getProjectDetails(task.projectId);
-                  return (
-                    <div
-                      key={task.id}
-                      className="bg-[#181a20] border border-white/5 rounded-2xl p-3.5 flex items-center justify-between gap-3 shadow-lg hover:border-white/10 transition-all group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0 flex-1">
-                        <button
-                          onClick={() => toggleTask(task.id)}
-                          className={`w-6 h-6 rounded-full flex items-center justify-center transition-all ${
-                            task.completed
-                              ? 'bg-[#34d399] text-[#0b0d11] shadow-md shadow-[#34d399]/30'
-                              : 'border-2 border-neutral-600 hover:border-[#34d399]'
-                          }`}
-                        >
-                          {task.completed && <Check className="w-3.5 h-3.5 stroke-[3]" />}
-                        </button>
-                        <div className="min-w-0 flex-1">
-                          <p className={`text-sm font-medium truncate ${task.completed ? 'line-through text-neutral-500' : 'text-neutral-200'}`}>
-                            {task.title}
+              {/* Cabecera Detail: Título grande de la tarea */}
+              <div className="flex items-start justify-between gap-4 mb-6">
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-snug">
+                  {selectedTask.title}
+                </h2>
+                
+                {/* Botón de acción rápida: borrar */}
+                <button
+                  onClick={(e) => deleteTask(selectedTask.id, e)}
+                  title="Eliminar tarea"
+                  className="p-2 text-neutral-500 hover:text-rose-400 rounded-xl hover:bg-white/5 transition"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* Pestañas: Details (activa con línea abajo) y Activity log */}
+              <div className="flex items-center gap-6 border-b border-white/[0.06] mb-6">
+                <button
+                  onClick={() => setActiveDetailTab('details')}
+                  className={`pb-2.5 text-sm font-semibold transition relative ${
+                    activeDetailTab === 'details' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >
+                  Details
+                  {activeDetailTab === 'details' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-full"></span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setActiveDetailTab('activity')}
+                  className={`pb-2.5 text-sm font-semibold transition relative ${
+                    activeDetailTab === 'activity' ? 'text-white' : 'text-neutral-500 hover:text-neutral-300'
+                  }`}
+                >
+                  Activity log
+                  {activeDetailTab === 'activity' && (
+                    <span className="absolute bottom-0 left-0 right-0 h-[2px] bg-white rounded-full"></span>
+                  )}
+                </button>
+              </div>
+
+              {activeDetailTab === 'details' ? (
+                <>
+                  {/* Tarjetas de Atributos: Tres cajas apiladas */}
+                  <div className="space-y-3 mb-7">
+                    
+                    {/* Caja 1: Date & time */}
+                    <div className="bg-[#1b1d24] border border-white/[0.03] rounded-2xl p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center text-neutral-400">
+                          <CalendarIcon className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium text-neutral-400">Date & time</p>
+                          <p className="text-sm font-semibold text-white">
+                            Today, {selectedTask.start_time}{selectedTask.end_time ? ` - ${selectedTask.end_time}` : ''}
                           </p>
-                          <div className="flex items-center gap-1.5 mt-0.5">
-                            <span className={`w-1.5 h-1.5 rounded-full ${proj.color}`}></span>
-                            <span className="text-[10px] text-neutral-400">{proj.name}</span>
-                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Caja 2: Priority level con selector */}
+                    <div className="bg-[#1b1d24] border border-white/[0.03] rounded-2xl p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center">
+                          <Flag className={`w-4 h-4 ${
+                            selectedTask.priority === 'High' ? 'text-red-500' : 
+                            selectedTask.priority === 'Medium' ? 'text-amber-400' : 'text-blue-400'
+                          }`} />
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium text-neutral-400">Priority level</p>
+                          <p className="text-sm font-semibold text-white">{selectedTask.priority}</p>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1 bg-[#121417] p-1 rounded-xl border border-white/5">
-                        <button
-                          onClick={() => setEditingTask(task)}
-                          className="p-1.5 text-neutral-400 hover:text-white rounded-lg transition"
-                          title="Editar"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" />
-                        </button>
-                        <button
-                          onClick={() => deleteTask(task.id)}
-                          className="p-1.5 text-neutral-400 hover:text-rose-400 rounded-lg transition"
-                          title="Eliminar"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
+                      {/* Botones para alternar prioridad */}
+                      <div className="flex items-center gap-1 bg-[#131418] p-1 rounded-xl border border-white/5">
+                        {['High', 'Medium', 'Low'].map(p => (
+                          <button
+                            key={p}
+                            onClick={() => changeTaskPriority(selectedTask.id, p)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-bold transition ${
+                              selectedTask.priority === p 
+                                ? 'bg-white text-black shadow-sm' 
+                                : 'text-neutral-500 hover:text-white'
+                            }`}
+                          >
+                            {p}
+                          </button>
+                        ))}
                       </div>
                     </div>
-                  );
-                })
-              )}
-            </div>
 
-          </div>
+                    {/* Caja 3: Status interactivo */}
+                    <div 
+                      onClick={toggleStatusFromDetail}
+                      className="bg-[#1b1d24] border border-white/[0.03] rounded-2xl p-4 flex items-center justify-between cursor-pointer hover:bg-[#20222a] transition group"
+                    >
+                      <div className="flex items-center gap-3.5">
+                        <div className="w-9 h-9 rounded-xl bg-white/5 flex items-center justify-center">
+                          <span className={`w-2.5 h-2.5 rounded-full ${selectedTask.completed ? 'bg-[#2563eb]' : 'bg-[#34d399]'}`}></span>
+                        </div>
+                        <div>
+                          <p className="text-[11px] font-medium text-neutral-400">Status</p>
+                          <p className="text-sm font-semibold text-white">
+                            {selectedTask.completed ? 'Completed' : 'In Progress'}
+                          </p>
+                        </div>
+                      </div>
 
-          {/* ------------------------------------------------------ */}
-          {/* COLUMNA 2: Agenda Principal, Tarjetas de Llamada y Botón CTA */}
-          {/* ------------------------------------------------------ */}
-          <div className={`lg:col-span-6 space-y-6 ${activeTab === 'agenda' ? 'block' : 'hidden lg:block'}`}>
-            
-            {/* TARJETA DESTACADA: Evento del mes en curso */}
-            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-6 shadow-2xl shadow-black/50">
-              
-              <div className="inline-block bg-[#121417] border border-white/5 px-3 py-1 rounded-full text-[10px] font-bold tracking-widest text-neutral-400 uppercase mb-4">
-                MEET.GOOGLE.COM
-              </div>
-
-              <div className="flex items-start gap-2.5 mb-2">
-                <span className="w-2 h-2 rounded-full bg-amber-400 mt-1.5 flex-shrink-0"></span>
-                <h3 className="text-base sm:text-lg font-bold text-white leading-snug">
-                  {events[0]?.title || 'Discusión de UI/UX para el nuevo proyecto'}
-                </h3>
-              </div>
-
-              <p className="text-xs text-neutral-400 mb-6 pl-4">
-                {events[0]?.time || `${selectedCalendarDay} de ${currentMonthName} - 11:00 AM a 12:00 PM`}
-              </p>
-
-              <div className="flex items-center justify-between pt-2">
-                <div className="bg-[#121417] p-1.5 rounded-full border border-white/5 flex items-center gap-1.5">
-                  <button 
-                    onClick={() => events[0] && handleDeleteEvent(events[0].id)}
-                    title="Descartar"
-                    className="w-9 h-9 rounded-full bg-[#181a20] text-neutral-400 hover:text-white flex items-center justify-center transition"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-
-                  <button 
-                    onClick={() => alert('Reunión confirmada')}
-                    className="w-9 h-9 rounded-full bg-[#181a20] text-neutral-400 hover:text-white flex items-center justify-center transition"
-                  >
-                    <Smile className="w-4 h-4" />
-                  </button>
-
-                  <button 
-                    onClick={() => {
-                      if (events[0]?.link) {
-                        window.open(events[0].link.startsWith('http') ? events[0].link : `https://${events[0].link}`, '_blank');
-                      } else {
-                        alert('No hay enlace configurado para esta reunión.');
-                      }
-                    }}
-                    title="Unirse o Confirmar"
-                    className="w-9 h-9 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-md shadow-[#34d399]/20 transition hover:scale-105"
-                  >
-                    <Check className="w-4 h-4 stroke-[3]" />
-                  </button>
-                </div>
-
-                <div className="h-6 w-px bg-white/10 mx-2"></div>
-
-                <div className="w-9 h-9 rounded-full bg-[#121417] border border-white/5 text-neutral-400 flex items-center justify-center">
-                  <Users className="w-4 h-4" />
-                </div>
-              </div>
-
-            </div>
-
-            {/* TARJETA 2: Llamada / Videollamada ("Llamando...") */}
-            <div className="bg-[#181a20] border border-white/5 rounded-[28px] p-5 flex items-center justify-between gap-4 shadow-2xl shadow-black/50">
-              
-              <div className="flex items-center gap-3.5 min-w-0">
-                <div className="w-12 h-12 rounded-2xl bg-white flex items-center justify-center text-[#0b0d11] shadow-md flex-shrink-0">
-                  <Phone className="w-5 h-5 stroke-[2.5]" />
-                </div>
-                
-                <div className="min-w-0">
-                  <h4 className="text-sm sm:text-base font-bold text-white truncate">
-                    {events[1]?.title || 'Kenjo Assou'}
-                  </h4>
-                  <p className="text-xs text-neutral-400 truncate">
-                    {events[1]?.time || 'Llamando... 11:00 AM'}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <button
-                  onClick={() => events[1] && handleDeleteEvent(events[1].id)}
-                  className="w-9 h-9 rounded-full bg-[#121417] text-neutral-400 hover:text-white flex items-center justify-center border border-white/5 transition"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-
-                <button
-                  onClick={() => openCreateEventModal()}
-                  className="w-9 h-9 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-md shadow-[#34d399]/20 transition hover:scale-105"
-                >
-                  <Check className="w-4 h-4 stroke-[3]" />
-                </button>
-              </div>
-
-            </div>
-
-            {/* LISTA ADICIONAL DE EVENTOS */}
-            {events.length > 2 && (
-              <div className="space-y-2">
-                {events.slice(2).map(ev => (
-                  <div key={ev.id} className="bg-[#181a20] border border-white/5 rounded-2xl p-4 flex items-center justify-between">
-                    <div>
-                      <h4 className="text-sm font-bold text-white">{ev.title}</h4>
-                      <p className="text-xs text-neutral-400">{ev.time}</p>
+                      <ChevronRight className="w-4 h-4 text-neutral-500 group-hover:text-white transition" />
                     </div>
-                    <div className="flex gap-2">
-                      <button onClick={() => openEditEventModal(ev)} className="p-1.5 text-neutral-400 hover:text-white">
-                        <Edit3 className="w-4 h-4" />
-                      </button>
-                      <button onClick={() => handleDeleteEvent(ev.id)} className="p-1.5 text-neutral-400 hover:text-rose-400">
-                        <Trash2 className="w-4 h-4" />
-                      </button>
+
+                  </div>
+
+                  {/* Sección Description */}
+                  <div>
+                    <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-neutral-300 mb-2.5">
+                      <AlignLeft className="w-3.5 h-3.5 text-neutral-400" />
+                      <span>Description</span>
+                    </div>
+
+                    <div className="bg-[#1b1d24]/60 border border-white/[0.03] rounded-2xl p-4">
+                      <textarea
+                        value={selectedTask.description}
+                        onChange={(e) => updateTaskDescription(e.target.value)}
+                        placeholder="Añade detalles adicionales para esta tarea..."
+                        rows={4}
+                        className="w-full bg-transparent text-sm text-neutral-300 placeholder-neutral-600 focus:outline-none resize-none leading-relaxed"
+                      />
+                      <p className="text-[10px] text-neutral-500 text-right mt-1">
+                        Editable en tiempo real
+                      </p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                </>
+              ) : (
+                /* Pestaña Activity Log */
+                <div className="p-6 bg-[#1b1d24]/40 border border-white/[0.03] rounded-2xl space-y-4">
+                  <div className="flex items-start gap-3 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-blue-500 mt-1"></span>
+                    <div>
+                      <p className="text-white font-medium">Tarea sincronizada con Supabase</p>
+                      <p className="text-neutral-500">Última actualización guardada localmente y en la nube.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 text-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 mt-1"></span>
+                    <div>
+                      <p className="text-white font-medium">Estado actual: {selectedTask.completed ? 'Completada' : 'En Progreso'}</p>
+                      <p className="text-neutral-500">Prioridad: {selectedTask.priority}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
+              <CheckSquare className="w-12 h-12 text-neutral-600 mb-3" />
+              <p className="text-base font-semibold text-white mb-1">Selecciona una tarea</p>
+              <p className="text-xs text-neutral-500">Elige una tarea de la lista para ver y editar sus detalles completos.</p>
+            </div>
+          )}
 
-            {/* BOTÓN CTA PRINCIPAL: '+ Crear Nuevo Evento' */}
+          {/* Footer de información de usuario */}
+          <div className="pt-4 mt-6 border-t border-white/[0.04] flex items-center justify-between text-xs text-neutral-500">
+            <span className="truncate max-w-[200px]">{session?.user?.email}</span>
             <button
-              onClick={openCreateEventModal}
-              className="w-full bg-[#34d399] hover:bg-[#2ecc71] text-[#0b0d11] font-bold text-base py-4 px-6 rounded-2xl shadow-xl shadow-[#34d399]/20 transition-all active:scale-[0.99] flex items-center justify-center gap-2 cursor-pointer"
+              onClick={handleLogout}
+              className="text-neutral-400 hover:text-rose-400 transition flex items-center gap-1.5"
             >
-              <Plus className="w-5 h-5 stroke-[3]" />
-              <span>+ Crear Nuevo Evento</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Cerrar sesión</span>
             </button>
-
           </div>
 
+        </div>
+
+        {/* ==================================================================== */}
+        {/* BARRA DE NAVEGACIÓN FLOTANTE (Extremo Derecho)                      */}
+        {/* ==================================================================== */}
+        <div className="w-12 sm:w-14 bg-[#14151a] border border-white/[0.04] rounded-full py-4 flex flex-col items-center justify-between shadow-2xl flex-shrink-0">
+          
+          {/* Iconos superiores */}
+          <div className="flex flex-col items-center gap-5">
+            <button 
+              onClick={() => setShowMobileDetail(false)}
+              title="Inicio"
+              className="p-2 text-neutral-400 hover:text-white transition"
+            >
+              <Home className="w-5 h-5" />
+            </button>
+
+            {/* Checklist icon (activo) */}
+            <button 
+              onClick={() => setShowMobileDetail(false)}
+              title="Tareas"
+              className="p-2 bg-white/10 text-white rounded-xl shadow-sm transition"
+            >
+              <CheckSquare className="w-5 h-5" />
+            </button>
+
+            <button 
+              onClick={() => {
+                const q = prompt('Buscar tarea por título:');
+                if (q) {
+                  const found = tasks.find(t => t.title.toLowerCase().includes(q.toLowerCase()));
+                  if (found) {
+                    setSelectedTaskId(found.id);
+                    setShowMobileDetail(true);
+                  } else {
+                    alert('No se encontraron tareas coincidentes.');
+                  }
+                }
+              }}
+              title="Buscar"
+              className="p-2 text-neutral-400 hover:text-white transition"
+            >
+              <Search className="w-5 h-5" />
+            </button>
+          </div>
+
+          {/* FAB circular azul brillante con el símbolo "+" en la base */}
+          <button
+            onClick={() => setIsNewTaskModalOpen(true)}
+            title="Crear nueva tarea"
+            className="w-10 h-10 sm:w-11 sm:h-11 rounded-full bg-[#2563eb] hover:bg-[#1d4ed8] text-white flex items-center justify-center font-bold shadow-lg shadow-blue-600/40 transition-transform active:scale-95 cursor-pointer"
+          >
+            <Plus className="w-5 h-5 stroke-[3]" />
+          </button>
         </div>
 
       </div>
 
-      {/* ======================================================== */}
-      {/* MODAL: EDITAR TAREA */}
-      {/* ======================================================== */}
-      {editingTask && (
+      {/* ==================================================================== */}
+      {/* MODAL: CREAR NUEVA TAREA                                            */}
+      {/* ==================================================================== */}
+      {isNewTaskModalOpen && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">Editar Tarea</h3>
-              <button onClick={() => setEditingTask(null)} className="text-neutral-400 hover:text-white">
+          <div className="bg-[#16171d] border border-white/10 rounded-[32px] max-w-md w-full p-6 sm:p-7 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-xl font-bold text-white tracking-tight">Nueva Tarea</h3>
+              <button 
+                onClick={() => setIsNewTaskModalOpen(false)}
+                className="text-neutral-400 hover:text-white p-1"
+              >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            <form onSubmit={handleUpdateTask} className="space-y-4">
+            <form onSubmit={handleCreateTask} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Título</label>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                  Título de la tarea
+                </label>
                 <input
                   type="text"
-                  value={editingTask.title}
-                  onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
+                  placeholder="ej. Client meeting with Burger King"
+                  value={newTaskForm.title}
+                  onChange={(e) => setNewTaskForm({ ...newTaskForm, title: e.target.value })}
+                  className="w-full bg-[#1b1d24] border border-white/5 rounded-2xl px-4 py-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500"
                   required
+                  autoFocus
                 />
               </div>
 
+              {/* Horas */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                    Inicio
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="8:00 PM"
+                    value={newTaskForm.startTime}
+                    onChange={(e) => setNewTaskForm({ ...newTaskForm, startTime: e.target.value })}
+                    className="w-full bg-[#1b1d24] border border-white/5 rounded-2xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                    Fin
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="8:30 PM"
+                    value={newTaskForm.endTime}
+                    onChange={(e) => setNewTaskForm({ ...newTaskForm, endTime: e.target.value })}
+                    className="w-full bg-[#1b1d24] border border-white/5 rounded-2xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+              </div>
+
+              {/* Selector de Prioridad */}
               <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Proyecto</label>
-                <select
-                  value={editingTask.projectId}
-                  onChange={(e) => setEditingTask({ ...editingTask, projectId: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
-                >
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEditingTask(null)}
-                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
-                >
-                  Guardar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* MODAL: EVENTO */}
-      {/* ======================================================== */}
-      {eventModal.open && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">
-                {eventModal.isEditing ? 'Editar Evento' : 'Crear Nuevo Evento'}
-              </h3>
-              <button onClick={() => setEventModal({ open: false, isEditing: false, data: null })} className="text-neutral-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleSaveEvent} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Título</label>
-                <input
-                  type="text"
-                  placeholder="ej. Discusión de UI/UX para el proyecto"
-                  value={eventForm.title}
-                  onChange={(e) => setEventForm({ ...eventForm, title: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Horario</label>
-                <input
-                  type="text"
-                  placeholder="11:00 AM - 12:00 PM"
-                  value={eventForm.time}
-                  onChange={(e) => setEventForm({ ...eventForm, time: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Enlace Google Meet</label>
-                <input
-                  type="text"
-                  placeholder="meet.google.com/xyz-abc"
-                  value={eventForm.link}
-                  onChange={(e) => setEventForm({ ...eventForm, link: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Proyecto</label>
-                <select
-                  value={eventForm.projectId}
-                  onChange={(e) => setEventForm({ ...eventForm, projectId: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none"
-                >
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEventModal({ open: false, isEditing: false, data: null })}
-                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
-                >
-                  Guardar Evento
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* ======================================================== */}
-      {/* MODAL: PROYECTO */}
-      {/* ======================================================== */}
-      {projectModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-[#181a20] border border-white/10 rounded-[28px] max-w-md w-full p-6 shadow-2xl">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-bold text-white">Nuevo Proyecto</h3>
-              <button onClick={() => setProjectModal(false)} className="text-neutral-400 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleCreateProject} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-1">Nombre</label>
-                <input
-                  type="text"
-                  placeholder="ej. Marketing, Finanzas, Mobile..."
-                  value={projectForm.name}
-                  onChange={(e) => setProjectForm({ ...projectForm, name: e.target.value })}
-                  className="w-full bg-[#111317] border border-white/5 rounded-2xl px-3.5 py-3 text-sm text-white focus:outline-none focus:border-[#34d399]"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase tracking-wider text-neutral-400 mb-2">Color</label>
-                <div className="flex gap-2.5 items-center flex-wrap">
-                  {COLOR_OPTIONS.map(opt => (
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                  Prioridad
+                </label>
+                <div className="grid grid-cols-3 gap-2">
+                  {['High', 'Medium', 'Low'].map(p => (
                     <button
-                      key={opt.hex}
+                      key={p}
                       type="button"
-                      onClick={() => setProjectForm({ ...projectForm, color: opt.color, hex: opt.hex })}
-                      className={`w-9 h-9 rounded-2xl ${opt.color} flex items-center justify-center transition-transform hover:scale-105 ${
-                        projectForm.hex === opt.hex ? 'ring-2 ring-white ring-offset-2 ring-offset-[#181a20]' : ''
+                      onClick={() => setNewTaskForm({ ...newTaskForm, priority: p })}
+                      className={`py-2 rounded-xl text-xs font-bold border transition ${
+                        newTaskForm.priority === p 
+                          ? 'bg-[#2563eb] text-white border-blue-400/50 shadow-md shadow-blue-500/20' 
+                          : 'bg-[#1b1d24] text-neutral-400 border-white/5 hover:text-white'
                       }`}
                     >
-                      {projectForm.hex === opt.hex && <Check className="w-4 h-4 text-black stroke-[3]" />}
+                      {p}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              {/* Descripción */}
+              <div>
+                <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-400 mb-1.5">
+                  Descripción
+                </label>
+                <textarea
+                  placeholder="Detalles sobre los objetivos o temas a tratar..."
+                  value={newTaskForm.description}
+                  onChange={(e) => setNewTaskForm({ ...newTaskForm, description: e.target.value })}
+                  rows={3}
+                  className="w-full bg-[#1b1d24] border border-white/5 rounded-2xl px-4 py-3 text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-blue-500 resize-none"
+                />
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3">
                 <button
                   type="button"
-                  onClick={() => setProjectModal(false)}
-                  className="px-4 py-2.5 text-sm text-neutral-400 hover:text-white"
+                  onClick={() => setIsNewTaskModalOpen(false)}
+                  className="px-4 py-2.5 text-sm font-semibold text-neutral-400 hover:text-white"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2.5 text-sm bg-[#34d399] text-[#0b0d11] font-bold rounded-xl hover:bg-[#2ecc71] transition"
+                  disabled={submitting || !newTaskForm.title.trim()}
+                  className="px-5 py-2.5 text-sm font-bold bg-[#2563eb] hover:bg-[#1d4ed8] text-white rounded-xl shadow-lg shadow-blue-600/30 transition disabled:opacity-50"
                 >
-                  Guardar
+                  {submitting ? 'Creando...' : 'Crear Tarea'}
                 </button>
               </div>
+
             </form>
           </div>
         </div>
       )}
-
-      {/* ======================================================== */}
-      {/* BARRA DE NAVEGACIÓN INFERIOR MÓVIL */}
-      {/* ======================================================== */}
-      <div className="lg:hidden fixed bottom-3 left-4 right-4 bg-[#181a20]/95 backdrop-blur-md border border-white/10 z-40 px-6 py-2 rounded-full shadow-2xl shadow-black/80">
-        <div className="flex items-center justify-around max-w-sm mx-auto">
-          <button 
-            type="button"
-            onClick={() => setActiveTab('tasks')}
-            className={`p-2 rounded-xl transition ${activeTab === 'tasks' ? 'text-[#34d399]' : 'text-neutral-500'}`}
-          >
-            <ListTodo className="w-6 h-6" />
-          </button>
-          
-          <button 
-            type="button"
-            onClick={openCreateEventModal}
-            className="w-11 h-11 rounded-full bg-[#34d399] text-[#0b0d11] flex items-center justify-center font-bold shadow-lg shadow-[#34d399]/30 -mt-4 transition active:scale-95"
-          >
-            <Plus className="w-6 h-6 stroke-[3]" />
-          </button>
-
-          <button 
-            type="button"
-            onClick={() => setActiveTab('agenda')}
-            className={`p-2 rounded-xl transition ${activeTab === 'agenda' ? 'text-[#34d399]' : 'text-neutral-500'}`}
-          >
-            <CalendarIcon className="w-6 h-6" />
-          </button>
-        </div>
-      </div>
 
     </div>
   );

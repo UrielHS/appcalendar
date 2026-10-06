@@ -19,6 +19,11 @@ CREATE TABLE IF NOT EXISTS public.tasks (
     project_id UUID REFERENCES public.projects(id) ON DELETE SET NULL,
     title TEXT NOT NULL,
     completed BOOLEAN NOT NULL DEFAULT false,
+    priority TEXT DEFAULT 'High',
+    description TEXT DEFAULT '',
+    start_time TEXT DEFAULT '8:00 PM',
+    end_time TEXT DEFAULT '8:30 PM',
+    comments_count INTEGER DEFAULT 0,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
@@ -121,3 +126,14 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
     AFTER INSERT ON auth.users
     FOR EACH ROW EXECUTE FUNCTION public.handle_new_user_default_projects();
+
+-- ====================================================================
+-- MIGRACIÓN / ACTUALIZACIÓN PARA TABLAS EXISTENTES:
+-- Si ya tenías la tabla 'tasks' creada con anterioridad, ejecuta lo siguiente:
+-- ====================================================================
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS priority TEXT DEFAULT 'High';
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS description TEXT DEFAULT '';
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS start_time TEXT DEFAULT '8:00 PM';
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS end_time TEXT DEFAULT '8:30 PM';
+ALTER TABLE public.tasks ADD COLUMN IF NOT EXISTS comments_count INTEGER DEFAULT 0;
+
